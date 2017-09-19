@@ -51,6 +51,7 @@ NSString *TGImageHash(NSData *data);
 @interface UIImage (Preloading)
 
 - (UIImage *)preloadedImage;
+- (UIImage *)preloadedImageWithAlpha;
 - (void)tgPreload;
 
 - (void)setMediumImage:(UIImage *)image;
@@ -71,17 +72,24 @@ CGSize TGFillSize(CGSize size, CGSize maxSize);
 CGSize TGFillSizeF(CGSize size, CGSize maxSize);
 CGSize TGCropSize(CGSize size, CGSize maxSize);
 CGSize TGScaleToFill(CGSize size, CGSize boundsSize);
+CGSize TGScaleToFit(CGSize size, CGSize boundsSize);
     
 CGFloat TGRetinaFloor(CGFloat value);
+CGFloat TGRetinaCeil(CGFloat value);
 CGFloat TGScreenPixelFloor(CGFloat value);
     
 bool TGIsRetina();
 CGFloat TGScreenScaling();
 bool TGIsPad();
     
+CGFloat TGSeparatorHeight();
+
+    
 CGSize TGScreenSize();
+CGSize TGNativeScreenSize();
     
 extern CGFloat TGRetinaPixel;
+extern CGFloat TGScreenPixel;
     
 void TGDrawSvgPath(CGContextRef context, NSString *path);
 

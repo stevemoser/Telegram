@@ -13,7 +13,9 @@
 typedef enum {
     TGModernConversationTitleViewActivityTyping,
     TGModernConversationTitleViewActivityAudioRecording,
-    TGModernConversationTitleViewActivityUploading
+    TGModernConversationTitleViewActivityVideoMessageRecording,
+    TGModernConversationTitleViewActivityUploading,
+    TGModernConversationTitleViewActivityPlaying
 } TGModernConversationTitleViewActivity;
 
 @class TGModernConversationTitleView;
@@ -47,8 +49,11 @@ typedef enum {
 - (void)setModalProgressStatus:(NSString *)modalProgressStatus;
 - (void)setUnreadCount:(int)unreadCount;
 - (void)setShowUnreadCount:(bool)showUnreadCount;
+- (void)disableUnreadCount;
 
 - (void)suspendAnimations;
 - (void)resumeAnimations;
+
+- (void)setShowStatus:(bool)showStatus;
 
 @end

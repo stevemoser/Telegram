@@ -1,11 +1,16 @@
 #import "TGMediaAssetsPickerController.h"
+#import "TGMediaAssetsMomentsController.h"
 #import "TGMediaGroupsController.h"
 #import "TGWebSearchController.h"
 #import "TGGenericModernConversationCompanion.h"
 
+#import "TGMediaAssetMomentList.h"
+
+#import "TGAppDelegate.h"
 #import "TGFileUtils.h"
 #import "TGImageUtils.h"
 #import "TGPhotoEditorUtils.h"
+#import "TGPaintUtils.h"
 #import "UIImage+TG.h"
 #import "TGGifConverter.h"
 #import <CommonCrypto/CommonDigest.h>
@@ -22,8 +27,8 @@
 
 #import "TGPhotoEditorController.h"
 
-#import "TGVideoConverter.h"
 #import "TGVideoEditAdjustments.h"
+#import "TGPaintingData.h"
 
 @interface TGMediaAssetsController () <UINavigationControllerDelegate>
 {
@@ -45,7 +50,7 @@
 
 @implementation TGMediaAssetsController
 
-+ (instancetype)controllerWithAssetGroup:(TGMediaAssetGroup *)assetGroup intent:(TGMediaAssetsControllerIntent)intent
++ (instancetype)controllerWithAssetGroup:(TGMediaAssetGroup *)assetGroup intent:(TGMediaAssetsControllerIntent)intent recipientName:(NSString *)recipientName
 {
     TGMediaAssetsController *assetsController = [[TGMediaAssetsController alloc] initWithIntent:intent];
     
@@ -74,18 +79,30 @@
     };
     
     TGMediaGroupsController *groupsController = [[TGMediaGroupsController alloc] initWithAssetsLibrary:assetsController.assetsLibrary intent:intent];
-    groupsController.openAssetGroup = ^(TGMediaAssetGroup *group)
+    groupsController.openAssetGroup = ^(id group)
     {
         __strong TGMediaAssetsController *strongController = weakController;
         if (strongController == nil)
             return;
         
-        TGMediaAssetsPickerController *pickerController = [[TGMediaAssetsPickerController alloc] initWithAssetsLibrary:strongController.assetsLibrary assetGroup:group intent:intent selectionContext:strongController->_selectionContext editingContext:strongController->_editingContext];
+        TGMediaAssetsPickerController *pickerController = nil;
+        
+        if ([group isKindOfClass:[TGMediaAssetGroup class]])
+        {
+            pickerController = [[TGMediaAssetsPickerController alloc] initWithAssetsLibrary:strongController.assetsLibrary assetGroup:group intent:intent selectionContext:strongController->_selectionContext editingContext:strongController->_editingContext];
+        }
+        else if ([group isKindOfClass:[TGMediaAssetMomentList class]])
+        {
+            pickerController = [[TGMediaAssetsMomentsController alloc] initWithAssetsLibrary:strongController.assetsLibrary momentList:group intent:intent selectionContext:strongController->_selectionContext editingContext:strongController->_editingContext];
+        }
         pickerController.suggestionContext = strongController.suggestionContext;
         pickerController.localMediaCacheEnabled = strongController.localMediaCacheEnabled;
         pickerController.captionsEnabled = strongController.captionsEnabled;
+        pickerController.inhibitDocumentCaptions = strongController.inhibitDocumentCaptions;
         pickerController.liveVideoUploadEnabled = strongController.liveVideoUploadEnabled;
         pickerController.catchToolbarView = catchToolbarView;
+        pickerController.recipientName = recipientName;
+        pickerController.hasTimer = strongController.hasTimer;
         [strongController pushViewController:pickerController animated:true];
     };
     [groupsController loadViewIfNeeded];
@@ -98,6 +115,8 @@
     
     [assetsController setViewControllers:@[ groupsController, pickerController ]];
     ((TGNavigationBar *)assetsController.navigationBar).navigationController = assetsController;
+    
+    assetsController.recipientName = recipientName;
     
     return assetsController;
 }
@@ -112,6 +131,12 @@
 {
     _captionsEnabled = captionsEnabled;
     self.pickerController.captionsEnabled = captionsEnabled;
+}
+
+- (void)setInhibitDocumentCaptions:(bool)inhibitDocumentCaptions
+{
+    _inhibitDocumentCaptions = inhibitDocumentCaptions;
+    self.pickerController.inhibitDocumentCaptions = inhibitDocumentCaptions;
 }
 
 - (void)setLiveVideoUploadEnabled:(bool)liveVideoUploadEnabled
@@ -130,6 +155,18 @@
 {
     _shouldStoreAssets = shouldStoreAssets;
     self.pickerController.shouldStoreAssets = shouldStoreAssets;
+}
+
+- (void)setRecipientName:(NSString *)recipientName
+{
+    _recipientName = recipientName;
+    self.pickerController.recipientName = recipientName;
+}
+
+- (void)setHasTimer:(bool)hasTimer
+{
+    _hasTimer = hasTimer;
+    self.pickerController.hasTimer = hasTimer;
 }
 
 - (TGMediaAssetsPickerController *)pickerController
@@ -178,7 +215,10 @@
             [strongSelf->_toolbarView setRightButtonEnabled:strongSelf->_selectionContext.count > 0 animated:false];
         }]];
         
-        _editingContext = [[TGMediaEditingContext alloc] init];
+        if (intent == TGMediaAssetsControllerSendMediaIntent || intent == TGMediaAssetsControllerSetProfilePhotoIntent)
+            _editingContext = [[TGMediaEditingContext alloc] init];
+        else if (intent == TGMediaAssetsControllerSendFileIntent)
+            _editingContext = [TGMediaEditingContext contextForCaptionsOnly];
     }
     return self;
 }
@@ -209,8 +249,7 @@
         if (strongSelf == nil)
             return;
         
-        if (strongSelf.dismissalBlock != nil)
-            strongSelf.dismissalBlock();
+        [strongSelf dismiss];
     };
     
     _toolbarView.rightPressed = ^
@@ -219,6 +258,14 @@
         if (strongSelf != nil)
             [strongSelf completeWithCurrentItem:nil];
     };
+}
+
+- (void)dismiss
+{
+    if (self.dismissalBlock != nil)
+        self.dismissalBlock();
+    
+    [_editingContext clearPaintingData];
 }
 
 - (void)viewDidLayoutSubviews
@@ -299,7 +346,8 @@
 
 - (NSArray *)resultSignalsWithCurrentItem:(TGMediaAsset *)currentItem descriptionGenerator:(id (^)(id, NSString *, NSString *))descriptionGenerator
 {
-    return [TGMediaAssetsController resultSignalsForSelectionContext:_selectionContext editingContext:_editingContext intent:_intent currentItem:currentItem storeAssets:self.shouldStoreAssets useMediaCache:self.localMediaCacheEnabled descriptionGenerator:descriptionGenerator];
+    bool storeAssets = (_editingContext != nil) && self.shouldStoreAssets;
+    return [TGMediaAssetsController resultSignalsForSelectionContext:_selectionContext editingContext:_editingContext intent:_intent currentItem:currentItem storeAssets:storeAssets useMediaCache:self.localMediaCacheEnabled descriptionGenerator:descriptionGenerator];
 }
 
 + (NSArray *)resultSignalsForSelectionContext:(TGMediaSelectionContext *)selectionContext editingContext:(TGMediaEditingContext *)editingContext intent:(TGMediaAssetsControllerIntent)intent currentItem:(TGMediaAsset *)currentItem storeAssets:(bool)storeAssets useMediaCache:(bool)__unused useMediaCache descriptionGenerator:(id (^)(id, NSString *, NSString *))descriptionGenerator
@@ -309,7 +357,7 @@
     if (selectedItems.count == 0 && currentItem != nil)
         [selectedItems addObject:currentItem];
     
-    if (storeAssets)
+    if (TGAppDelegateInstance.saveEditedPhotos && storeAssets)
     {
         NSMutableArray *fullSizeSignals = [[NSMutableArray alloc] init];
         for (TGMediaAsset *asset in selectedItems)
@@ -352,9 +400,13 @@
     CGSize fallbackThumbnailImageSize = CGSizeMake(256, 256);
     SSignal *(^inlineThumbnailSignal)(TGMediaAsset *) = ^SSignal *(TGMediaAsset *asset)
     {
-        return [[[TGMediaAssetImageSignals imageForAsset:asset imageType:TGMediaAssetImageTypeAspectRatioThumbnail size:fallbackThumbnailImageSize allowNetworkAccess:false] takeLast] catch:^SSignal *(__unused id error)
+        return [[[TGMediaAssetImageSignals imageForAsset:asset imageType:TGMediaAssetImageTypeAspectRatioThumbnail size:fallbackThumbnailImageSize allowNetworkAccess:false] takeLast] catch:^SSignal *(id error)
         {
-            return [SSignal single:blankImage];
+            if ([error respondsToSelector:@selector(boolValue)] && [error boolValue]) {
+                return [[TGMediaAssetImageSignals imageForAsset:asset imageType:TGMediaAssetImageTypeAspectRatioThumbnail size:fallbackThumbnailImageSize allowNetworkAccess:true] takeLast];
+            } else {
+                return [SSignal single:blankImage];
+            }
         }];
     };
     
@@ -366,6 +418,8 @@
             {
                 if (intent == TGMediaAssetsControllerSendFileIntent)
                 {
+                    NSString *caption = [editingContext captionForItem:asset];
+                    
                     [signals addObject:[[[TGMediaAssetImageSignals imageDataForAsset:asset allowNetworkAccess:false] map:^NSDictionary *(TGMediaAssetImageData *assetData)
                     {
                         NSString *tempFileName = TGTemporaryFileName(nil);
@@ -377,7 +431,7 @@
                         dict[@"fileName"] = assetData.fileName;
                         dict[@"mimeType"] = TGMimeTypeForFileUTI(assetData.fileUTI);
                         
-                        id generatedItem = descriptionGenerator(dict, nil, nil);
+                        id generatedItem = descriptionGenerator(dict, caption, nil);
                         return generatedItem;
                     }] catch:^SSignal *(id error)
                     {
@@ -402,6 +456,9 @@
                 else
                 {
                     NSString *caption = [editingContext captionForItem:asset];
+                    id<TGMediaEditAdjustments> adjustments = [editingContext adjustmentsForItem:asset];
+                    NSNumber *timer = [editingContext timerForItem:asset];
+                    
                     SSignal *inlineSignal = [inlineThumbnailSignal(asset) map:^id(UIImage *image)
                     {
                         NSMutableDictionary *dict = [[NSMutableDictionary alloc] init];
@@ -409,6 +466,9 @@
                         dict[@"document"] = @false;
                         dict[@"asset"] = asset;
                         dict[@"previewImage"] = image;
+                        
+                        if (timer != nil)
+                            dict[@"timer"] = timer;
                         
                         id generatedItem = descriptionGenerator(dict, caption, nil);
                         return generatedItem;
@@ -444,7 +504,17 @@
                     
                     [signals addObject:[[imageSignal map:^NSDictionary *(UIImage *image)
                     {
-                        id generatedItem = descriptionGenerator(image, caption, nil);
+                        NSMutableDictionary *dict = [[NSMutableDictionary alloc] init];
+                        dict[@"type"] = @"editedPhoto";
+                        dict[@"image"] = image;
+                        
+                        if (adjustments.paintingData.stickers.count > 0)
+                            dict[@"stickers"] = adjustments.paintingData.stickers;
+                        
+                        if (timer != nil)
+                            dict[@"timer"] = timer;
+                        
+                        id generatedItem = descriptionGenerator(dict, caption, nil);
                         return generatedItem;
                     }] catch:^SSignal *(__unused id error)
                     {
@@ -458,6 +528,9 @@
             {
                 if (intent == TGMediaAssetsControllerSendFileIntent)
                 {
+                    NSString *caption = [editingContext captionForItem:asset];
+                    id<TGMediaEditAdjustments> adjustments = [editingContext adjustmentsForItem:asset];
+                    
                     [signals addObject:[inlineThumbnailSignal(asset) map:^id(UIImage *image)
                     {
                         NSMutableDictionary *dict = [[NSMutableDictionary alloc] init];
@@ -467,45 +540,42 @@
                         dict[@"previewImage"] = image;
                         dict[@"fileName"] = asset.fileName;
                         
-                        id generatedItem = descriptionGenerator(dict, nil, nil);
+                        if (adjustments.paintingData.stickers.count > 0)
+                            dict[@"stickers"] = adjustments.paintingData.stickers;
+                        
+                        id generatedItem = descriptionGenerator(dict, caption, nil);
                         return generatedItem;
                     }]];
                 }
                 else
                 {
-                    TGVideoEditAdjustments *adjustments = nil;
-                    NSString *caption = nil;
+                    TGVideoEditAdjustments *adjustments = (TGVideoEditAdjustments *)[editingContext adjustmentsForItem:asset];
+                    NSString *caption = [editingContext captionForItem:asset];
+                    NSNumber *timer = [editingContext timerForItem:asset];
                     
-                    if (editingContext != nil)
+                    UIImage *(^cropVideoThumbnail)(UIImage *, CGSize, CGSize, bool) = ^UIImage *(UIImage *image, CGSize targetSize, CGSize sourceSize, bool resize)
                     {
-                        caption = [editingContext captionForItem:asset];
-                        adjustments = (TGVideoEditAdjustments *)[editingContext adjustmentsForItem:asset];
-                    }
+                        if ([adjustments cropAppliedForAvatar:false] || adjustments.hasPainting)
+                        {
+                            CGRect scaledCropRect = CGRectMake(adjustments.cropRect.origin.x * image.size.width / adjustments.originalSize.width, adjustments.cropRect.origin.y * image.size.height / adjustments.originalSize.height, adjustments.cropRect.size.width * image.size.width / adjustments.originalSize.width, adjustments.cropRect.size.height * image.size.height / adjustments.originalSize.height);
+                            return TGPhotoEditorCrop(image, adjustments.paintingData.image, adjustments.cropOrientation, 0, scaledCropRect, adjustments.cropMirrored, targetSize, sourceSize, resize);
+                        }
+                        
+                        return image;
+                    };
                     
                     SSignal *trimmedVideoThumbnailSignal = [[TGMediaAssetImageSignals avAssetForVideoAsset:asset allowNetworkAccess:false] mapToSignal:^SSignal *(AVAsset *avAsset)
                     {
                         CGSize imageSize = TGFillSize(asset.dimensions, CGSizeMake(384, 384));
-                        return [[TGMediaAssetImageSignals videoThumbnailForAVAsset:avAsset size:imageSize timestamp:CMTimeMakeWithSeconds(adjustments.trimStartValue, NSEC_PER_SEC)] map:^id(UIImage *image)
+                        return [[TGMediaAssetImageSignals videoThumbnailForAVAsset:avAsset size:imageSize timestamp:CMTimeMakeWithSeconds(adjustments.trimStartValue, NSEC_PER_SEC)] map:^UIImage *(UIImage *image)
                         {
-                            if ([adjustments cropAppliedForAvatar:false] || [adjustments rotationApplied])
-                            {
-                                CGRect scaledCropRect = CGRectMake(adjustments.cropRect.origin.x * image.size.width / adjustments.originalSize.width, adjustments.cropRect.origin.y * image.size.height / adjustments.originalSize.height, adjustments.cropRect.size.width * image.size.width / adjustments.originalSize.width, adjustments.cropRect.size.height * image.size.height / adjustments.originalSize.height);
-                                return TGPhotoEditorCrop(image, adjustments.cropOrientation, 0, scaledCropRect, TGFillSize(asset.dimensions, CGSizeMake(256, 256)), asset.dimensions, true);
-                            }
-                            
-                            return image;
+                            return cropVideoThumbnail(image, TGScaleToFill(asset.dimensions, CGSizeMake(256, 256)), asset.dimensions, true);
                         }];
                     }];
                     
                     SSignal *videoThumbnailSignal = [inlineThumbnailSignal(asset) map:^UIImage *(UIImage *image)
                     {
-                        if ([adjustments cropAppliedForAvatar:false] || [adjustments rotationApplied])
-                        {
-                            CGRect scaledCropRect = CGRectMake(adjustments.cropRect.origin.x * image.size.width / adjustments.originalSize.width, adjustments.cropRect.origin.y * image.size.height / adjustments.originalSize.height, adjustments.cropRect.size.width * image.size.width / adjustments.originalSize.width, adjustments.cropRect.size.height * image.size.height / adjustments.originalSize.height);
-                            return TGPhotoEditorCrop(image, adjustments.cropOrientation, 0, scaledCropRect, image.size, image.size, false);
-                        }
-                        
-                        return image;
+                        return cropVideoThumbnail(image, image.size, image.size, false);
                     }];
                     
                     SSignal *thumbnailSignal = adjustments.trimStartValue > FLT_EPSILON ? trimmedVideoThumbnailSignal : videoThumbnailSignal;
@@ -519,6 +589,12 @@
                         dict[@"previewImage"] = image;
                         dict[@"adjustments"] = adjustments;
                         
+                        if (adjustments.paintingData.stickers.count > 0)
+                            dict[@"stickers"] = adjustments.paintingData.stickers;
+                        
+                        if (timer != nil)
+                            dict[@"timer"] = timer;
+                        
                         id generatedItem = descriptionGenerator(dict, caption, nil);
                         return generatedItem;
                     }]];
@@ -528,6 +604,8 @@
                 
             case TGMediaAssetGifType:
             {
+                NSString *caption = editingContext ? [editingContext captionForItem:asset] : nil;
+
                 [signals addObject:[[[TGMediaAssetImageSignals imageDataForAsset:asset allowNetworkAccess:false] mapToSignal:^SSignal *(TGMediaAssetImageData *assetData)
                 {
                     NSString *tempFileName = TGTemporaryFileName(nil);
@@ -546,7 +624,7 @@
                             dict[@"mimeType"] = @"video/mp4";
                             dict[@"isAnimation"] = @true;
                             
-                            id generatedItem = descriptionGenerator(dict, nil, nil);
+                            id generatedItem = descriptionGenerator(dict, caption, nil);
                             return generatedItem;
                         }];
                     }
@@ -560,7 +638,7 @@
                         dict[@"fileName"] = assetData.fileName;
                         dict[@"mimeType"] = TGMimeTypeForFileUTI(assetData.fileUTI);
                         
-                        id generatedItem = descriptionGenerator(dict, nil, nil);
+                        id generatedItem = descriptionGenerator(dict, caption, nil);
                         return [SSignal single:generatedItem];
                     }
                 }] catch:^SSignal *(id error)
@@ -576,7 +654,7 @@
                         dict[@"asset"] = asset;
                         dict[@"previewImage"] = image;
                         
-                        id generatedItem = descriptionGenerator(dict, nil, nil);
+                        id generatedItem = descriptionGenerator(dict, caption, nil);
                         return generatedItem;
                     }];
                 }]];
@@ -612,6 +690,9 @@
 {
     __weak TGMediaAssetsController *weakSelf = self;
     TGWebSearchController *searchController = [[TGWebSearchController alloc] initForAvatarSelection:(_intent == TGMediaAssetsControllerSetProfilePhotoIntent) embedded:true];
+    searchController.captionsEnabled = self.captionsEnabled;
+    searchController.suggestionContext = self.suggestionContext;
+    
     __weak TGWebSearchController *weakController = searchController;
     searchController.avatarCompletionBlock = ^(UIImage *image)
     {

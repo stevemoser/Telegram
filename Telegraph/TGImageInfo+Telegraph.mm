@@ -21,9 +21,15 @@ NSString *extractFileUrl(id fileLocation)
         
         return [[NSString alloc] initWithFormat:@"%d_%lld_%d_%lld", concreteFileLocation.dcId.intValue, concreteFileLocation.volumeId.longLongValue, concreteFileLocation.localId.intValue, concreteFileLocation.secret.longLongValue];
     }
-    else if ([fileLocation isKindOfClass:[Secret46_FileLocation_fileLocation class]])
+    else if ([fileLocation isKindOfClass:[Secret66_FileLocation_fileLocation class]])
     {
-        Secret46_FileLocation_fileLocation *concreteFileLocation = fileLocation;
+        Secret66_FileLocation_fileLocation *concreteFileLocation = fileLocation;
+        
+        return [[NSString alloc] initWithFormat:@"%d_%lld_%d_%lld", concreteFileLocation.dcId.intValue, concreteFileLocation.volumeId.longLongValue, concreteFileLocation.localId.intValue, concreteFileLocation.secret.longLongValue];
+    }
+    else if ([fileLocation isKindOfClass:[Secret66_FileLocation_fileLocation class]])
+    {
+        Secret66_FileLocation_fileLocation *concreteFileLocation = fileLocation;
         
         return [[NSString alloc] initWithFormat:@"%d_%lld_%d_%lld", concreteFileLocation.dcId.intValue, concreteFileLocation.volumeId.longLongValue, concreteFileLocation.localId.intValue, concreteFileLocation.secret.longLongValue];
     }
@@ -108,7 +114,7 @@ bool extractFileUrlComponents(NSString *fileUrl, int *datacenterId, int64_t *vol
                 }
 #endif
                 
-                [self addImageWithSize:CGSizeMake(concreteSize.w, concreteSize.h) url:urlLocation];
+                [self addImageWithSize:CGSizeMake(concreteSize.w, concreteSize.h) url:urlLocation fileSize:concreteSize.size];
             }
             else if ([sizeDesc isKindOfClass:[TLPhotoSize$photoCachedSize class]])
             {
@@ -116,7 +122,7 @@ bool extractFileUrlComponents(NSString *fileUrl, int *datacenterId, int64_t *vol
                 
                 NSString *url = extractFileUrl(concreteSize.location);
                 
-                [self addImageWithSize:CGSizeMake(concreteSize.w, concreteSize.h) url:url];
+                [self addImageWithSize:CGSizeMake(concreteSize.w, concreteSize.h) url:url fileSize:(int32_t)concreteSize.bytes.length];
                 
                 if (concreteSize.bytes.length != 0)
                 {
@@ -226,6 +232,62 @@ bool extractFileUrlComponents(NSString *fileUrl, int *datacenterId, int64_t *vol
             else if ([sizeDesc isKindOfClass:[Secret46_PhotoSize_photoCachedSize class]])
             {
                 Secret46_PhotoSize_photoCachedSize *concreteSize = sizeDesc;
+                
+                NSString *url = extractFileUrl(concreteSize.location);
+                
+                [self addImageWithSize:CGSizeMake(concreteSize.w.intValue, concreteSize.h.intValue) url:url];
+                
+                if (concreteSize.bytes.length != 0)
+                {
+                    NSData *imageData = concreteSize.bytes;
+                    if (cachedData != NULL)
+                        *cachedData = imageData;
+                    else
+                    {
+                        if (url != nil)
+                        {
+                            [[TGRemoteImageView sharedCache] diskCacheContains:url orUrl:nil completion:^(bool containsFirst, __unused bool containsSecond)
+                             {
+                                 if (!containsFirst)
+                                 {
+                                     if (TGEnableBlur() && cpuCoreCount() > 1)
+                                     {
+                                         NSData *data = nil;
+                                         TGScaleAndBlurImage(imageData, CGSizeZero, &data);
+                                         if (data != nil)
+                                             [[TGRemoteImageView sharedCache] cacheImage:nil withData:data url:url availability:TGCacheDisk];
+                                         else
+                                             [[TGRemoteImageView sharedCache] cacheImage:nil withData:imageData url:url availability:TGCacheDisk];
+                                     }
+                                     else
+                                         [[TGRemoteImageView sharedCache] cacheImage:nil withData:imageData url:url availability:TGCacheDisk];
+                                 }
+                             }];
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return self;
+}
+
+- (id)initWithSecret66SizesDescription:(NSArray *)sizesDesc cachedData:(__autoreleasing NSData **)cachedData {
+    self = [super init];
+    if (self != nil)
+    {
+        for (id sizeDesc in sizesDesc)
+        {
+            if ([sizeDesc isKindOfClass:[Secret66_PhotoSize_photoSize class]])
+            {
+                Secret66_PhotoSize_photoSize *concreteSize = sizeDesc;
+                NSString *urlLocation = extractFileUrl(concreteSize.location);
+                
+                [self addImageWithSize:CGSizeMake(concreteSize.w.intValue, concreteSize.h.intValue) url:urlLocation];
+            }
+            else if ([sizeDesc isKindOfClass:[Secret66_PhotoSize_photoCachedSize class]])
+            {
+                Secret66_PhotoSize_photoCachedSize *concreteSize = sizeDesc;
                 
                 NSString *url = extractFileUrl(concreteSize.location);
                 

@@ -20,7 +20,7 @@
     return 0;
 }
 
-- (id<TLObject>)TLbuildFromMetaObject:(std::tr1::shared_ptr<TLMetaObject>)__unused metaObject
+- (id<TLObject>)TLbuildFromMetaObject:(std::shared_ptr<TLMetaObject>)__unused metaObject
 {
     TGLog(@"TLbuildFromMetaObject is not implemented for base type");
     return nil;
@@ -47,7 +47,7 @@
     return (int32_t)0xa585e4bc;
 }
 
-- (id<TLObject>)TLbuildFromMetaObject:(std::tr1::shared_ptr<TLMetaObject>)metaObject
+- (id<TLObject>)TLbuildFromMetaObject:(std::shared_ptr<TLMetaObject>)metaObject
 {
     TLPhoto$photoEmpty *object = [[TLPhoto$photoEmpty alloc] init];
     object.n_id = metaObject->getInt64((int32_t)0x7a5601fb);
@@ -80,7 +80,7 @@
     return (int32_t)0xd3b3bebc;
 }
 
-- (id<TLObject>)TLbuildFromMetaObject:(std::tr1::shared_ptr<TLMetaObject>)metaObject
+- (id<TLObject>)TLbuildFromMetaObject:(std::shared_ptr<TLMetaObject>)metaObject
 {
     TLPhoto$wallPhoto *object = [[TLPhoto$wallPhoto alloc] init];
     object.n_id = metaObject->getInt64((int32_t)0x7a5601fb);
@@ -154,7 +154,7 @@
 
 - (int32_t)TLconstructorSignature
 {
-    return (int32_t)0xcded42fe;
+    return (int32_t)0x9288dd29;
 }
 
 - (int32_t)TLconstructorName
@@ -162,9 +162,10 @@
     return (int32_t)0xe6c52372;
 }
 
-- (id<TLObject>)TLbuildFromMetaObject:(std::tr1::shared_ptr<TLMetaObject>)metaObject
+- (id<TLObject>)TLbuildFromMetaObject:(std::shared_ptr<TLMetaObject>)metaObject
 {
     TLPhoto$photo *object = [[TLPhoto$photo alloc] init];
+    object.flags = metaObject->getInt32((int32_t)0x81915c23);
     object.n_id = metaObject->getInt64((int32_t)0x7a5601fb);
     object.access_hash = metaObject->getInt64((int32_t)0x8f305224);
     object.date = metaObject->getInt32((int32_t)0xb76958ba);
@@ -174,6 +175,12 @@
 
 - (void)TLfillFieldsWithValues:(std::map<int32_t, TLConstructedValue> *)values
 {
+    {
+        TLConstructedValue value;
+        value.type = TLConstructedValueTypePrimitiveInt32;
+        value.primitive.int32Value = self.flags;
+        values->insert(std::pair<int32_t, TLConstructedValue>((int32_t)0x81915c23, value));
+    }
     {
         TLConstructedValue value;
         value.type = TLConstructedValueTypePrimitiveInt64;

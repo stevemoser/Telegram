@@ -14,7 +14,8 @@ typedef enum {
     TGUserFlagVerified = (1 << 0),
     TGUserFlagHasExplicitContent = (1 << 1),
     TGUserFlagIsContextBot = (1 << 2),
-    TGUserFlagMinimalRepresentation = (1 << 3)
+    TGUserFlagMinimalRepresentation = (1 << 3),
+    TGUserFlagBotInlineGeo = (1 << 4)
 } TGUserFlags;
 
 @interface TGUser ()
@@ -31,11 +32,20 @@ typedef enum {
 
 @implementation TGUser
 
+- (instancetype)init {
+    self = [super init];
+    if (self != nil) {
+        TG_SYNCHRONIZED_INIT(_cachedValues);
+    }
+    return self;
+}
+
 - (instancetype)initWithKeyValueCoder:(PSKeyValueCoder *)coder
 {
     self = [super init];
     if (self != nil)
     {
+        TG_SYNCHRONIZED_INIT(_cachedValues);
         _kind = [coder decodeInt32ForCKey:"k"];
         if (_kind == TGUserKindBot || _kind == TGUserKindSmartBot)
         {
@@ -47,6 +57,7 @@ typedef enum {
         if ([self isContextBot]) {
             _contextBotPlaceholder = [coder decodeStringForCKey:"cbp"];
         }
+        _about = [coder decodeStringForCKey:"a"];
     }
     return self;
 }
@@ -64,6 +75,7 @@ typedef enum {
     if ([self isContextBot]) {
         [coder encodeString:_contextBotPlaceholder forCKey:"cbp"];
     }
+    [coder encodeString:_about forCKey:"a"];
 }
 
 - (id)copyWithZone:(NSZone *)__unused zone
@@ -103,9 +115,13 @@ typedef enum {
     return _firstName.length != 0 || _lastName.length != 0 || _phonebookFirstName.length != 0 || _phonebookLastName.length != 0;
 }
 
+- (bool)isBot {
+    return _kind == TGUserKindBot || _kind == TGUserKindSmartBot;
+}
+
 - (NSString *)firstName
 {
-    return (_phonebookFirstName.length != 0 || _phonebookLastName.length != 0) ? _phonebookFirstName : ((_firstName.length != 0 || _lastName.length != 0) ? _firstName : (_phoneNumber.length == 0 ? @"Name Hidden" : [self formattedPhoneNumber]));
+    return (_phonebookFirstName.length != 0 || _phonebookLastName.length != 0) ? _phonebookFirstName : ((_firstName.length != 0 || _lastName.length != 0) ? _firstName : (_phoneNumber.length == 0 ? TGLocalized(@"User.DeletedAccount") : [self formattedPhoneNumber]));
 }
 
 - (NSString *)lastName
@@ -421,6 +437,18 @@ typedef enum {
         _flags |= TGUserFlagMinimalRepresentation;
     } else {
         _flags &= ~TGUserFlagMinimalRepresentation;
+    }
+}
+
+- (bool)botInlineGeo {
+    return _flags & TGUserFlagBotInlineGeo;
+}
+
+- (void)setBotInlineGeo:(bool)botInlineGeo {
+    if (botInlineGeo) {
+        _flags |= TGUserFlagBotInlineGeo;
+    } else {
+        _flags &= ~TGUserFlagBotInlineGeo;
     }
 }
 

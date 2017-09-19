@@ -87,7 +87,9 @@ const CGFloat TGNotificationReplyHeaderHeight = 29.0f;
                 {
                     TGVideoMediaAttachment *videoAttachment = (TGVideoMediaAttachment *)subAttachment;
                     NSString *text = videoAttachment.caption;
-                    if (text.length == 0)
+                    if (videoAttachment.roundMessage)
+                        text = TGLocalized(@"Message.VideoMessage");
+                    else if (text.length == 0)
                         text = TGLocalized(@"Message.Video");
                     
                     messageText = text;
@@ -156,7 +158,7 @@ const CGFloat TGNotificationReplyHeaderHeight = 29.0f;
                     
                 case TGActionMediaAttachmentType:
                 {
-                    messageText = [TGReplyHeaderActionModel messageTextForActionMedia:(TGActionMediaAttachment *)subAttachment author:author];
+                    messageText = [TGReplyHeaderActionModel messageTextForActionMedia:(TGActionMediaAttachment *)subAttachment otherAttachments:attachment.replyMessage.mediaAttachments author:author];
                 }
                     break;
                     

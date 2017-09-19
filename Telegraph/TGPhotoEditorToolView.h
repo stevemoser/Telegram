@@ -6,15 +6,14 @@
 @protocol TGPhotoEditorToolView <NSObject>
 
 @property (nonatomic, assign) CGSize actualAreaSize;
-@property (nonatomic, copy) void(^titleChanged)(NSString *title);
 
 @property (nonatomic, copy) void(^valueChanged)(id newValue, bool animated);
 @property (nonatomic, strong) id value;
 
 @property (nonatomic, readonly) bool isTracking;
+@property (nonatomic, copy) void(^interactionBegan)(void);
 @property (nonatomic, copy) void(^interactionEnded)(void);
 
-@property (nonatomic, readonly) bool hideTitle;
 @property (nonatomic, assign) bool isLandscape;
 @property (nonatomic, assign) CGFloat toolbarLandscapeSize;
 

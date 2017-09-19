@@ -17,6 +17,10 @@
     NSUInteger _offset;
     NSUInteger _count;
     UILabel *_countLabel;
+    
+    TGModernButton *_calendarButton;
+    
+    bool _none;
 }
 
 @end
@@ -40,10 +44,10 @@
     self = [super initWithFrame:CGRectMake(frame.origin.x, frame.origin.y, frame.size.width, [self baseHeight])];
     if (self)
     {
-        self.backgroundColor = UIColorRGBA(0xfafafa, 0.98f);
+        self.backgroundColor = UIColorRGB(0xf7f7f7);
         
         _stripeLayer = [[CALayer alloc] init];
-        _stripeLayer.backgroundColor = UIColorRGBA(0xb3aab2, 0.4f).CGColor;
+        _stripeLayer.backgroundColor = UIColorRGB(0xb2b2b2).CGColor;
         [self.layer addSublayer:_stripeLayer];
         
         _nextButton = [[TGModernButton alloc] init];
@@ -58,8 +62,15 @@
         [_previousButton addTarget:self action:@selector(previousPressed) forControlEvents:UIControlEventTouchUpInside];
         [self addSubview:_previousButton];
         
+        _calendarButton = [[TGModernButton alloc] init];
+        [_calendarButton setImage:[UIImage imageNamed:@"ConversationSearchCalendar.png"] forState:UIControlStateNormal];
+        _calendarButton.modernHighlight = true;
+        [_calendarButton setContentEdgeInsets:UIEdgeInsetsMake(0.0f, 0.0f, 0.0f, 0.0)];
+        [self addSubview:_calendarButton];
+        [_calendarButton addTarget:self action:@selector(calendarButtonPressed) forControlEvents:UIControlEventTouchUpInside];
+        
         _activityIndicator = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleGray];
-        [self addSubview:_activityIndicator];
+        //[self addSubview:_activityIndicator];
         _activityIndicator.hidden = true;
         
         _doneButton = [[TGModernButton alloc] init];
@@ -105,6 +116,13 @@
     }
 }
 
+- (void)setNone {
+    if (!_none) {
+        _none = true;
+        [self updateInterface];
+    }
+}
+
 - (void)setInProgress:(bool)inProgress
 {
     if (_inProgress != inProgress)
@@ -127,6 +145,10 @@
 
 - (void)updateInterface
 {
+    _nextButton.hidden = _none;
+    _previousButton.hidden = _none;
+    _countLabel.hidden = _none;
+    
     if (_count != 0 && _offset + 1 < _count && !_inProgress)
     {
         _nextButton.enabled = true;
@@ -146,7 +168,7 @@
     }
     
     _doneButton.hidden = true;//_inProgress;
-    _countLabel.hidden = _inProgress || !_isSearching;
+    _countLabel.hidden = _none || _inProgress || !_isSearching;
     
     if (_inProgress != !_activityIndicator.hidden)
     {
@@ -165,15 +187,17 @@
     }
     [_countLabel sizeToFit];
     
+    _calendarButton.hidden = _none;
+    
     [self setNeedsLayout];
 }
 
-- (void)adjustForSize:(CGSize)size keyboardHeight:(CGFloat)keyboardHeight duration:(NSTimeInterval)duration animationCurve:(int)animationCurve
+- (void)adjustForSize:(CGSize)size keyboardHeight:(CGFloat)keyboardHeight duration:(NSTimeInterval)duration animationCurve:(int)animationCurve contentAreaHeight:(CGFloat)contentAreaHeight
 {
-    [self _adjustForSize:size keyboardHeight:keyboardHeight duration:duration animationCurve:animationCurve];
+    [self _adjustForSize:size keyboardHeight:keyboardHeight duration:duration animationCurve:animationCurve contentAreaHeight:contentAreaHeight];
 }
 
-- (void)_adjustForSize:(CGSize)size keyboardHeight:(CGFloat)keyboardHeight duration:(NSTimeInterval)duration animationCurve:(int)animationCurve
+- (void)_adjustForSize:(CGSize)size keyboardHeight:(CGFloat)keyboardHeight duration:(NSTimeInterval)duration animationCurve:(int)animationCurve contentAreaHeight:(CGFloat)__unused contentAreaHeight
 {
     dispatch_block_t block = ^
     {
@@ -189,9 +213,9 @@
         block();
 }
 
-- (void)changeToSize:(CGSize)size keyboardHeight:(CGFloat)keyboardHeight duration:(NSTimeInterval)duration
+- (void)changeToSize:(CGSize)size keyboardHeight:(CGFloat)keyboardHeight duration:(NSTimeInterval)duration contentAreaHeight:(CGFloat)contentAreaHeight
 {
-    [self _adjustForSize:size keyboardHeight:keyboardHeight duration:duration animationCurve:0];
+    [self _adjustForSize:size keyboardHeight:keyboardHeight duration:duration animationCurve:0 contentAreaHeight:contentAreaHeight];
 }
 
 - (void)layoutSubviews
@@ -209,6 +233,8 @@
     _countLabel.frame = CGRectMake(105.0f, CGFloor((self.frame.size.height - _countLabel.frame.size.height) / 2.0f), _countLabel.frame.size.width, _countLabel.frame.size.height);
     
     _activityIndicator.frame = CGRectMake(self.frame.size.width - _activityIndicator.frame.size.width - 8.0f, CGFloor((self.frame.size.height - _activityIndicator.frame.size.height) / 2.0f), _activityIndicator.frame.size.width, _activityIndicator.frame.size.height);
+    
+    _calendarButton.frame = CGRectMake(self.frame.size.width - 60.0f, 0.0f, 60.0f, self.frame.size.height);
 }
 
 - (void)nextPressed
@@ -227,6 +253,12 @@
 {
     if (_done)
         _done();
+}
+
+- (void)calendarButtonPressed {
+    if (_calendar) {
+        _calendar();
+    }
 }
 
 @end

@@ -224,7 +224,7 @@
     return nil;
 }
 
-- (void)uploadFilesWithExtensions:(NSArray *)filePathsAndExtensions
+- (void)uploadFilesWithExtensions:(NSArray *)filePathsAndExtensions mediaTypeTag:(TGNetworkMediaTypeTag)mediaTypeTag
 {
     if (filePathsAndExtensions.count == 0)
         return;
@@ -241,6 +241,8 @@
     static int actionId = 0;
     
     int dataIndex = 0;
+    
+    NSMutableArray *requests = [[NSMutableArray alloc] init];
     
     for (NSArray *itemDesc in filePathsAndExtensions)
     {
@@ -278,9 +280,14 @@
         if (itemDesc.count >= 4)
             options[@"liveData"] = itemDesc[3];
         
-        [ActionStageInstance() requestActor:actorPath options:options watcher:self];
+        options[@"mediaTypeTag"] = @(mediaTypeTag);
+        
+        [requests addObject:@{@"actorPath":actorPath, @"options":options }];
     }
-
+    
+    for (NSDictionary *request in requests)
+        [ActionStageInstance() requestActor:request[@"actorPath"] options:request[@"options"] watcher:self];
+    
     [self beginUploadProgress];
 }
 

@@ -72,7 +72,7 @@
     }
     
     UIView *tableHeaderView = self.tableHeaderView;
-    if (tableHeaderView != nil)
+    if (tableHeaderView != nil && [tableHeaderView respondsToSelector:@selector(updateClipping:)])
     {
         [(TGSearchBar *)tableHeaderView updateClipping:bounds.origin.y + self.contentInset.top];
     }
@@ -120,6 +120,13 @@
         return;
     
     [super setContentOffset:contentOffset];
+}
+
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
+    if (_onHitTest) {
+        _onHitTest(point);
+    }
+    return [super hitTest:point withEvent:event];
 }
 
 @end

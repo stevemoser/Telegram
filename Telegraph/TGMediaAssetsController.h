@@ -6,7 +6,6 @@
 
 typedef enum
 {
-    TGMediaAssetsControllerDefaultIntent,
     TGMediaAssetsControllerSendMediaIntent,
     TGMediaAssetsControllerSendFileIntent,
     TGMediaAssetsControllerSetProfilePhotoIntent,
@@ -18,10 +17,14 @@ typedef enum
 @property (nonatomic, strong) TGSuggestionContext *suggestionContext;
 @property (nonatomic, assign) bool localMediaCacheEnabled;
 @property (nonatomic, assign) bool captionsEnabled;
+@property (nonatomic, assign) bool inhibitDocumentCaptions;
 @property (nonatomic, assign) bool shouldStoreAssets;
 
+@property (nonatomic, assign) bool hasTimer;
 @property (nonatomic, assign) bool liveVideoUploadEnabled;
 @property (nonatomic, assign) bool shouldShowFileTipIfNeeded;
+
+@property (nonatomic, strong) NSString *recipientName;
 
 @property (nonatomic, copy) NSDictionary *(^descriptionGenerator)(id, NSString *, NSString *);
 @property (nonatomic, copy) void (^avatarCompletionBlock)(UIImage *image);
@@ -37,7 +40,7 @@ typedef enum
 - (void)completeWithAvatarImage:(UIImage *)image;
 - (void)completeWithCurrentItem:(TGMediaAsset *)currentItem;
 
-+ (instancetype)controllerWithAssetGroup:(TGMediaAssetGroup *)assetGroup intent:(TGMediaAssetsControllerIntent)intent;
++ (instancetype)controllerWithAssetGroup:(TGMediaAssetGroup *)assetGroup intent:(TGMediaAssetsControllerIntent)intent recipientName:(NSString *)recipientName;
 
 + (TGMediaAssetType)assetTypeForIntent:(TGMediaAssetsControllerIntent)intent;
 

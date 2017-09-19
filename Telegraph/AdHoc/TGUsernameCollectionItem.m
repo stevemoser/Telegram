@@ -38,8 +38,11 @@
     [view setPlaceholder:_placeholder];
     [view setSecureEntry:_secureEntry];
     [view setKeyboardType:_keyboardType];
+    [view setReturnKeyType:_returnKeyType];
     [view setUsername:_username];
     [view setUsernameValid:_usernameValid];
+    [view setMinimalInset:_minimalInset];
+    [view setAutoCapitalize:_autoCapitalize];
     
     __weak TGUsernameCollectionItem *weakSelf = self;
     view.usernameChanged = ^(NSString *username)
@@ -50,11 +53,18 @@
         if (strongSelf.usernameChanged)
             strongSelf.usernameChanged(username);
     };
+    view.returnPressed = ^{
+        __strong TGUsernameCollectionItem *strongSelf = weakSelf;
+        if (strongSelf != nil && strongSelf->_returnPressed) {
+            strongSelf->_returnPressed(strongSelf);
+        }
+    };
 }
 
 - (void)unbindView
 {
-    ((TGUsernameCollectionItemView *)self.boundView).usernameChanged = nil;
+    //((TGUsernameCollectionItemView *)self.boundView).usernameChanged = nil;
+    //((TGUsernameCollectionItemView *)self.boundView).returnPressed = nil;
     
     [super unbindView];
 }

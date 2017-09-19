@@ -1,4 +1,4 @@
-/*
+ /*
  * This is the source code of Telegram for iOS v. 1.1
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
@@ -24,7 +24,11 @@
     if ([topViewController isKindOfClass:[TGViewController class]])
     {
         TGViewController *concreteTopViewController = (TGViewController *)topViewController;
-        if (concreteTopViewController.associatedWindowStack.count != 0)
+        if (concreteTopViewController.presentedViewController != nil)
+        {
+            topViewController = concreteTopViewController.presentedViewController;
+        }
+        else if (concreteTopViewController.associatedWindowStack.count != 0)
         {
             for (UIWindow *window in concreteTopViewController.associatedWindowStack.reverseObjectEnumerator)
             {
@@ -58,7 +62,7 @@
 
 - (BOOL)prefersStatusBarHidden
 {
-    bool value = [[self statusBarAppearanceSourceController] prefersStatusBarHidden];
+    bool value = self.forceStatusBarHidden || [[self statusBarAppearanceSourceController] prefersStatusBarHidden];
     return value;
 }
 
@@ -161,6 +165,19 @@
 - (void)dealloc
 {
 
+}
+
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event
+{
+    return [super hitTest:point withEvent:event];
+}
+
+- (BOOL)pointInside:(CGPoint)point withEvent:(UIEvent *)event
+{
+    if (iosMajorVersion() < 8 && !self.hidden)
+        return true;
+    
+    return [super pointInside:point withEvent:event];
 }
 
 - (void)dismiss

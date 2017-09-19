@@ -6,6 +6,11 @@
 
 @implementation UIImage (TGMediaEditableItem)
 
+- (bool)isVideo
+{
+    return false;
+}
+
 - (NSString *)uniqueIdentifier
 {
     NSString *cachedIdentifier = objc_getAssociatedObject(self, @selector(uniqueIdentifier));
@@ -42,7 +47,7 @@
     }] startOn:[SQueue concurrentDefaultQueue]];
 }
 
-- (SSignal *)screenImageSignal
+- (SSignal *)screenImageSignal:(NSTimeInterval)__unused position
 {
     CGSize size = TGFitSize(self.size, TGPhotoEditorScreenImageMaxSize());
     
@@ -61,7 +66,7 @@
     }] startOn:[SQueue concurrentDefaultQueue]];
 }
 
-- (SSignal *)originalImageSignal
+- (SSignal *)originalImageSignal:(NSTimeInterval)__unused position
 {
     return [SSignal single:self];
 }

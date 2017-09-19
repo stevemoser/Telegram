@@ -54,6 +54,17 @@
 
 #import "TGViewController.h"
 
+#import "TGMessageReplyButtonsModel.h"
+
+#import "TGMapMessageViewModel.h"
+
+#import "TGAudioWebpageFooterModel.h"
+#import "TGArticleWebpageFooterModel.h"
+#import "TGStickerWebpageFooterModel.h"
+#import "TGMusicWebpageFooterModel.h"
+#import "TGDocumentWebpageFooterModel.h"
+#import "TGRoundVideoWebpageFooterModel.h"
+
 @interface TGImageMessageViewModel () <UIGestureRecognizerDelegate, TGDoubleTapGestureRecognizerDelegate, TGMessageImageViewDelegate>
 {
     TGModernViewContext *_context;
@@ -103,7 +114,6 @@
     
     NSTimer *_viewDateTimer;
     
-    TGTextMessageBackgroundViewModel *_backgroundModel;
     TGModernTextViewModel *_forwardedHeaderModel;
     TGModernTextViewModel *_authorNameModel;
     TGModernTextViewModel *_viaUserModel;
@@ -117,6 +127,7 @@
     NSString *_caption;
     TGMessageViewCountContentProperty *_messageViews;
     TGMessageViewsViewModel *_messageViewsModel;
+    TGModernLabelViewModel *_editedLabelModel;
     
     TGModernButtonViewModel *_shareButtonModel;
     
@@ -128,6 +139,18 @@
     TGMessage *_message;
     NSArray *_textCheckingResults;
     UIColor *_authorNameColor;
+    
+    TGMessageReplyButtonsModel *_replyButtonsModel;
+    TGBotReplyMarkup *_replyMarkup;
+    SMetaDisposable *_callbackButtonInProgressDisposable;
+    
+    bool _isEdited;
+    
+    TGWebpageFooterModel *_webPageFooterModel;
+    bool _boundToContainer;
+    TGWebPageMediaAttachment *_webPage;
+    
+    NSString *_currentBaseUri;
 }
 
 @end
@@ -155,20 +178,34 @@ static CTFontRef textFontForSize(CGFloat size)
 
 - (instancetype)initWithMessage:(TGMessage *)message imageInfo:(TGImageInfo *)imageInfo authorPeer:(id)authorPeer context:(TGModernViewContext *)context forwardPeer:(id)forwardPeer forwardAuthor:(id)forwardAuthor forwardMessageId:(int32_t)forwardMessageId replyHeader:(TGMessage *)replyHeader replyAuthor:(id)replyAuthor viaUser:(TGUser *)viaUser caption:(NSString *)caption textCheckingResults:(NSArray *)textCheckingResults
 {
+    return [self initWithMessage:message imageInfo:imageInfo authorPeer:authorPeer context:context forwardPeer:forwardPeer forwardAuthor:forwardAuthor forwardMessageId:forwardMessageId replyHeader:replyHeader replyAuthor:replyAuthor viaUser:viaUser caption:caption textCheckingResults:textCheckingResults webPage:nil];
+}
+
+- (instancetype)initWithMessage:(TGMessage *)message imageInfo:(TGImageInfo *)imageInfo authorPeer:(id)authorPeer context:(TGModernViewContext *)context forwardPeer:(id)forwardPeer forwardAuthor:(id)forwardAuthor forwardMessageId:(int32_t)forwardMessageId replyHeader:(TGMessage *)replyHeader replyAuthor:(id)replyAuthor viaUser:(TGUser *)viaUser caption:(NSString *)caption textCheckingResults:(NSArray *)textCheckingResults webPage:(TGWebPageMediaAttachment *)webPage {
     self = [super initWithAuthorPeer:authorPeer context:context];
     if (self != nil)
     {
+        _callbackButtonInProgressDisposable = [[SMetaDisposable alloc] init];
+        
         _previewEnabled = true;
         _canDownload = true;
         
         _context = context;
         
+        _webPage = webPage;
+        
         bool isChannel = [authorPeer isKindOfClass:[TGConversation class]];
+        
+        _authorPeer = authorPeer;
+        
+        if (message.isEdited && (_authorPeer == nil || ![_authorPeer isKindOfClass:[TGConversation class]] || !((TGConversation *)_authorPeer).isChannel || ((TGConversation *)_authorPeer).isChannelGroup)) {
+            _isEdited = true;
+        }
         
         _incoming = !message.outgoing;
         _incomingAppearance = _incoming || isChannel;
         _deliveryState = message.deliveryState;
-        _read = !message.unread;
+        _read = ![_context isMessageUnread:message];
         _date = (int32_t)message.date;
         _messageViews = message.viewCount;
         _message = message;
@@ -189,7 +226,9 @@ static CTFontRef textFontForSize(CGFloat size)
         _forwardAuthor = forwardAuthor;
         
         NSString *imageUri = [imageInfo imageUrlForLargestSize:NULL];
-        if ([imageUri hasPrefix:@"photo-thumbnail://?"])
+        if (imageUri == nil) {
+            imageUri = @"photo-thumbnail://?";
+        } else if ([imageUri hasPrefix:@"photo-thumbnail://?"])
         {
             NSDictionary *dict = [TGStringUtils argumentDictionaryInUrlString:[imageUri substringFromIndex:@"photo-thumbnail://?".length]];
             _legacyThumbnailCacheUri = dict[@"legacy-thumbnail-cache-url"];
@@ -205,7 +244,9 @@ static CTFontRef textFontForSize(CGFloat size)
             _legacyThumbnailCacheUri = dict[@"legacy-thumbnail-cache-url"];
         }
         
-        if (_replyHeader != nil || _caption.length != 0 || _forwardPeer != nil || _viaUser != nil) {
+        _currentBaseUri = imageUri;
+        
+        if (_replyHeader != nil || _caption.length != 0 || _forwardPeer != nil || _viaUser != nil || _webPage != nil) {
             imageUri = [imageUri stringByAppendingString:@"&flat=1"];
         }
         
@@ -223,6 +264,11 @@ static CTFontRef textFontForSize(CGFloat size)
         });
         
         _hasAvatar = authorPeer != nil && ![authorPeer isKindOfClass:[TGConversation class]];
+        if ([authorPeer isKindOfClass:[TGConversation class]]) {
+            if ([context isAdminLog]) {
+                _hasAvatar = true;
+            }
+        }
         
         static UIImage *placeholderImage = nil;
         static dispatch_once_t onceToken1;
@@ -235,7 +281,6 @@ static CTFontRef textFontForSize(CGFloat size)
         
         _mid = message.mid;
         _deliveryState = message.deliveryState;
-        _read = !message.unread;
         _date = (int32_t)message.date;
         _messageLifetime = message.messageLifetime;
         
@@ -249,7 +294,7 @@ static CTFontRef textFontForSize(CGFloat size)
         _imageModel.skipDrawInContext = true;
         
         CGSize renderSize = CGSizeZero;
-        [TGImageMessageViewModel calculateImageSizesForImageSize:imageSize thumbnailSize:&imageSize renderSize:&renderSize squareAspect:false hasCaption:_caption.length != 0];
+        [TGImageMessageViewModel calculateImageSizesForImageSize:imageSize thumbnailSize:&imageSize renderSize:&renderSize squareAspect:message.messageLifetime > 0 && message.messageLifetime <= 60 && message.layer >= 17 hasCaption:_caption.length != 0];
         
         _imageModel.frame = CGRectMake(0, 0, imageSize.width, imageSize.height);
         
@@ -278,7 +323,16 @@ static CTFontRef textFontForSize(CGFloat size)
             }
         }
         
-        if (isChannel || _context.isBot || isBot) {
+        bool forwardedFromChannel = false;
+        
+        if (_incomingAppearance && [forwardPeer isKindOfClass:[TGConversation class]]) {
+            TGConversation *conversation = forwardPeer;
+            if (conversation.isChannel && !conversation.isChannelGroup) {
+                forwardedFromChannel = true;
+            }
+        }
+        
+        if (_incomingAppearance && (isChannel || _context.isBot || (_context.isPublicGroup && ![self isKindOfClass:[TGMapMessageViewModel class]]) || isBot || forwardedFromChannel) && !_context.isAdminLog) {
             [_backgroundModel setPartialMode:false];
             
             _shareButtonModel = [[TGModernButtonViewModel alloc] init];
@@ -286,6 +340,26 @@ static CTFontRef textFontForSize(CGFloat size)
             _shareButtonModel.modernHighlight = true;
             _shareButtonModel.frame = CGRectMake(0.0f, 0.0f, 29.0f, 29.0f);
             [self addSubmodel:_shareButtonModel];
+        }
+        
+        TGBotReplyMarkup *replyMarkup = message.replyMarkup;
+        if (replyMarkup != nil && replyMarkup.isInline) {
+            _replyMarkup = replyMarkup;
+            _replyButtonsModel = [[TGMessageReplyButtonsModel alloc] init];
+            __weak TGImageMessageViewModel *weakSelf = self;
+            _replyButtonsModel.buttonActivated = ^(TGBotReplyMarkupButton *button, NSInteger index) {
+                __strong TGImageMessageViewModel *strongSelf = weakSelf;
+                if (strongSelf != nil) {
+                    NSMutableDictionary *dict = [[NSMutableDictionary alloc] initWithDictionary:@{@"mid": @(strongSelf->_mid), @"command": button.text}];
+                    if (button.action != nil) {
+                        dict[@"action"] = button.action;
+                    }
+                    dict[@"index"] = @(index);
+                    [strongSelf->_context.companionHandle requestAction:@"activateCommand" options:dict];
+                }
+            };
+            [_replyButtonsModel setReplyMarkup:replyMarkup hasReceipt:false];
+            [self addSubmodel:_replyButtonsModel];
         }
     }
     return self;
@@ -352,7 +426,9 @@ static CTFontRef textFontForSize(CGFloat size)
 - (void)updateImageInfo:(TGImageInfo *)imageInfo
 {
     NSString *imageUri = [imageInfo imageUrlForLargestSize:NULL];
-    if ([imageUri hasPrefix:@"photo-thumbnail://?"])
+    if (imageUri == nil) {
+        imageUri = @"photo-thumbnail://?";
+    } else if ([imageUri hasPrefix:@"photo-thumbnail://?"])
     {
         NSDictionary *dict = [TGStringUtils argumentDictionaryInUrlString:[imageUri substringFromIndex:@"photo-thumbnail://?".length]];
         _legacyThumbnailCacheUri = dict[@"legacy-thumbnail-cache-url"];
@@ -367,6 +443,8 @@ static CTFontRef textFontForSize(CGFloat size)
         NSDictionary *dict = [TGStringUtils argumentDictionaryInUrlString:[imageUri substringFromIndex:@"animation-thumbnail://?".length]];
         _legacyThumbnailCacheUri = dict[@"legacy-thumbnail-cache-url"];
     }
+    
+    _currentBaseUri = imageUri;
     
     if (_backgroundModel != nil)
         imageUri = [imageUri stringByAppendingString:@"&flat=1"];
@@ -417,14 +495,19 @@ static CTFontRef textFontForSize(CGFloat size)
         return;
     }
     
-    CGFloat maxSide = false ? 312.0f : 246.0f;
+    CGFloat maxSide = 228.0f;
     static bool hasLargeScreen = true;
+    static bool hasVeryLargeScreen = true;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         hasLargeScreen = [TGViewController hasLargeScreen];
+        hasVeryLargeScreen = [TGViewController hasVeryLargeScreen];
     });
-    if (!hasLargeScreen) {
-        maxSide -= 18.0f;
+    if (hasVeryLargeScreen) {
+        maxSide += 71.0f;
+    }
+    else if (hasLargeScreen) {
+        maxSide += 51.0f;
     }
     CGSize imageTargetMaxSize = CGSizeMake(maxSide, maxSide);
     CGSize imageScalingMaxSize = CGSizeMake(imageTargetMaxSize.width - 18.0f, imageTargetMaxSize.height - 18.0f);
@@ -535,32 +618,50 @@ static CTFontRef textFontForSize(CGFloat size)
         else
             [_backgroundModel clearHighlight];
     }
-    else
+
+    if ([_imageModel boundView] != nil)
     {
-        if ([_imageModel boundView] != nil)
+        if (temporaryHighlighted)
         {
-            if (temporaryHighlighted)
+            if (_temporaryHighlightView == nil)
             {
-                if (_temporaryHighlightView == nil)
+                UIImage *highlightImage = [UIImage imageNamed:@"ModernImageBubbleHighlight.png"];
+                if (_backgroundModel != nil)
                 {
-                    UIImage *highlightImage = [UIImage imageNamed:@"ModernImageBubbleHighlight.png"];
-                    _temporaryHighlightView = [[UIImageView alloc] initWithImage:[highlightImage stretchableImageWithLeftCapWidth:(int)(highlightImage.size.width / 2.0f) topCapHeight:(int)(highlightImage.size.height / 2.0f)]];
-                    _temporaryHighlightView.frame = [_imageModel boundView].frame;
-                    [[_imageModel boundView].superview addSubview:_temporaryHighlightView];
+                    static dispatch_once_t onceToken;
+                    static UIImage *image;
+                    dispatch_once(&onceToken, ^
+                    {
+                        CGRect frame = CGRectMake(0.0f, 0.0f, 26.0f, 26.0f);
+                        UIGraphicsBeginImageContextWithOptions(frame.size, false, 0.0f);
+                        CGContextRef context = UIGraphicsGetCurrentContext();
+                        CGContextSetFillColorWithColor(context, UIColorRGBA(0xffffff, 0.7f).CGColor);
+                        
+                        UIBezierPath *path = [UIBezierPath bezierPathWithRoundedRect:frame cornerRadius:frame.size.width / 2.0f];
+                        [path fill];
+                        
+                        image = [UIGraphicsGetImageFromCurrentImageContext() resizableImageWithCapInsets:UIEdgeInsetsMake(frame.size.height / 4.0f, frame.size.height / 4.0f, frame.size.height / 4.0f, frame.size.height / 4.0f)];
+                        UIGraphicsEndImageContext();
+                    });
+                    highlightImage = image;
                 }
+                
+                _temporaryHighlightView = [[UIImageView alloc] initWithImage:[highlightImage stretchableImageWithLeftCapWidth:(int)(highlightImage.size.width / 2.0f) topCapHeight:(int)(highlightImage.size.height / 2.0f)]];
+                _temporaryHighlightView.frame = [_imageModel boundView].frame;
+                [[_imageModel boundView].superview addSubview:_temporaryHighlightView];
             }
-            else if (_temporaryHighlightView != nil)
+        }
+        else if (_temporaryHighlightView != nil)
+        {
+            UIImageView *temporaryView = _temporaryHighlightView;
+            [UIView animateWithDuration:0.4 animations:^
             {
-                UIImageView *temporaryView = _temporaryHighlightView;
-                [UIView animateWithDuration:0.4 animations:^
-                {
-                    temporaryView.alpha = 0.0f;
-                } completion:^(__unused BOOL finished)
-                {
-                    [temporaryView removeFromSuperview];
-                }];
-                _temporaryHighlightView = nil;
-            }
+                temporaryView.alpha = 0.0f;
+            } completion:^(__unused BOOL finished)
+            {
+                [temporaryView removeFromSuperview];
+            }];
+            _temporaryHighlightView = nil;
         }
     }
 }
@@ -622,10 +723,18 @@ static CTFontRef textFontForSize(CGFloat size)
         } else if ([attachment isKindOfClass:[TGVideoMediaAttachment class]]) {
             currentCaption = ((TGVideoMediaAttachment *)attachment).caption;
             currentTextCheckingResults = ((TGVideoMediaAttachment *)attachment).textCheckingResults;
+        } else if ([attachment isKindOfClass:[TGDocumentMediaAttachment class]]) {
+            currentCaption = ((TGDocumentMediaAttachment *)attachment).caption;
+            currentTextCheckingResults = ((TGDocumentMediaAttachment *)attachment).textCheckingResults;
         }
     }
     
-    if (!TGStringCompare(previousCaption, currentCaption)) {
+    bool previousEdited = _isEdited;
+    if (message.isEdited && (_authorPeer == nil || ![_authorPeer isKindOfClass:[TGConversation class]] || !((TGConversation *)_authorPeer).isChannel || ((TGConversation *)_authorPeer).isChannelGroup)) {
+        _isEdited = true;
+    }
+    
+    if (!TGStringCompare(previousCaption, currentCaption) || previousEdited != _isEdited) {
         _caption = currentCaption;
         _textCheckingResults = currentTextCheckingResults;
         
@@ -653,28 +762,56 @@ static CTFontRef textFontForSize(CGFloat size)
             
             [_contentModel setNeedsSubmodelContentsUpdate];
             [_contentModel updateSubmodelContentsIfNeeded];
+        } else if (_isEdited != previousEdited) {
+            if (_isEdited) {
+                static CTFontRef dateFont = NULL;
+                static dispatch_once_t onceToken;
+                dispatch_once(&onceToken, ^
+                {
+                    if (iosMajorVersion() >= 7) {
+                        dateFont = CTFontCreateWithFontDescriptor((__bridge CTFontDescriptorRef)[TGItalicSystemFontOfSize(11.0f) fontDescriptor], 0.0f, NULL);
+                    } else {
+                        UIFont *font = TGItalicSystemFontOfSize(11.0f);
+                        dateFont = CTFontCreateWithName((__bridge CFStringRef)font.fontName, font.pointSize, nil);
+                    }
+                });
+                _editedLabelModel = [[TGModernLabelViewModel alloc] initWithText:TGLocalized(@"Conversation.MessageEditedLabel") textColor:_dateModel.textColor font:dateFont maxWidth:CGFLOAT_MAX];
+                [_contentModel addSubmodel:_editedLabelModel];
+            }
         }
     }
     
     _mid = message.mid;
+    TGMessageViewCountContentProperty *viewCount = _message.viewCount;
+    if (message.viewCount != nil) {
+        viewCount = message.viewCount;
+    }
+    if (viewCount != message.viewCount) {
+        _message = [message copy];
+        _message.viewCount = viewCount;
+    } else {
+        _message = message;
+    }
     
-    if (_deliveryState != message.deliveryState || (!_incoming && _read != !message.unread) || (_messageViews != nil && _messageViews.viewCount != message.viewCount.viewCount))
+    bool messageUnread = [_context isMessageUnread:message];
+    
+    if (_deliveryState != _message.deliveryState || (!_incoming && _read != !messageUnread) || (_messageViews != nil && _messageViews.viewCount != _message.viewCount.viewCount))
     {
-        _messageViews = message.viewCount;
+        _messageViews = _message.viewCount;
         TGMessageViewModelLayoutConstants const *layoutConstants = TGGetMessageViewModelLayoutConstants();
         
         TGMessageDeliveryState previousDeliveryState = _deliveryState;
         _deliveryState = message.deliveryState;
         
         if (_messageViewsModel != nil) {
-            _messageViewsModel.count = message.viewCount.viewCount;
+            _messageViewsModel.count = _message.viewCount.viewCount;
             _messageViewsModel.hidden = _deliveryState != TGMessageDeliveryStateDelivered;
         }
         
         bool previousRead = _read;
-        _read = !message.unread;
+        _read = !messageUnread;
         
-        if (_caption.length == 0)
+        if (_caption.length == 0 && _webPageFooterModel == nil)
         {
             [_imageModel setTimestampString:[self timestampString] signatureString:_authorSignature displayCheckmarks:!_incoming && _deliveryState != TGMessageDeliveryStateFailed checkmarkValue:(_incoming ? 0 : ((_deliveryState == TGMessageDeliveryStateDelivered ? 1 : 0) + (_read ? 1 : 0))) displayViews:_messageViews != nil viewsValue:_messageViews.viewCount animated:true];
             [_imageModel setDisplayTimestampProgress:_deliveryState == TGMessageDeliveryStatePending];
@@ -693,7 +830,7 @@ static CTFontRef textFontForSize(CGFloat size)
         
         if (_deliveryState == TGMessageDeliveryStateDelivered)
         {
-            if (_caption.length > 0)
+            if (_caption.length > 0 || _webPageFooterModel != nil)
             {
                 if (_progressModel != nil)
                 {
@@ -739,7 +876,7 @@ static CTFontRef textFontForSize(CGFloat size)
         }
         else if (_deliveryState == TGMessageDeliveryStateFailed)
         {
-            if (_caption.length > 0)
+            if (_caption.length > 0 || _webPageFooterModel != nil)
             {
                 if (_progressModel != nil)
                 {
@@ -796,7 +933,7 @@ static CTFontRef textFontForSize(CGFloat size)
         }
         else if (_deliveryState == TGMessageDeliveryStatePending)
         {
-            if (_caption.length > 0)
+            if (_caption.length > 0 || _webPageFooterModel != nil)
             {
                 if (_progressModel == nil)
                 {
@@ -804,7 +941,7 @@ static CTFontRef textFontForSize(CGFloat size)
                     if (!_incoming && previousDeliveryState == TGMessageDeliveryStateFailed)
                         unsentOffset = 29.0f;
                     
-                    _progressModel = [[TGModernClockProgressViewModel alloc] initWithType:TGModernClockProgressTypeOutgoingClock];
+                    _progressModel = [[TGModernClockProgressViewModel alloc] initWithType:_incomingAppearance ? TGModernClockProgressTypeIncomingClock : TGModernClockProgressTypeOutgoingClock];
                     _progressModel.frame = CGRectMake(self.frame.size.width - 28 - layoutConstants->rightInset - unsentOffset, _contentModel.frame.origin.y + _contentModel.frame.size.height - 17 + 1.0f, 15, 15);
                     [self addSubmodel:_progressModel];
                     
@@ -889,7 +1026,52 @@ static CTFontRef textFontForSize(CGFloat size)
                     [self layoutForContainerSize:CGSizeMake(self.frame.size.width, 0.0f)];
             }
         }
+        
+        if ((previousCaption.length == 0) != (_caption.length != 0)) {
+            NSString *imageUri = _currentBaseUri;
+            if (_backgroundModel != nil) {
+                imageUri = [imageUri stringByAppendingString:@"&flat=1"];
+            }
+            [_imageModel setUri:imageUri];
+        }
     }
+    
+    TGBotReplyMarkup *replyMarkup = message.replyMarkup != nil && message.replyMarkup.isInline ? message.replyMarkup : nil;
+    if (!TGObjectCompare(_replyMarkup, replyMarkup)) {
+        _replyMarkup = replyMarkup;
+        
+        if (_replyButtonsModel == nil) {
+            _replyButtonsModel = [[TGMessageReplyButtonsModel alloc] init];
+            __weak TGImageMessageViewModel *weakSelf = self;
+            _replyButtonsModel.buttonActivated = ^(TGBotReplyMarkupButton *button, NSInteger index) {
+                __strong TGImageMessageViewModel *strongSelf = weakSelf;
+                if (strongSelf != nil) {
+                    NSMutableDictionary *dict = [[NSMutableDictionary alloc] initWithDictionary:@{@"mid": @(strongSelf->_mid), @"command": button.text}];
+                    if (button.action != nil) {
+                        dict[@"action"] = button.action;
+                    }
+                    dict[@"index"] = @(index);
+                    [strongSelf->_context.companionHandle requestAction:@"activateCommand" options:dict];
+                }
+            };
+            
+            [self addSubmodel:_replyButtonsModel];
+        }
+        if (_imageModel.boundView != nil) {
+            [_replyButtonsModel unbindView:viewStorage];
+            [_replyButtonsModel setReplyMarkup:replyMarkup hasReceipt:false];
+            [_replyButtonsModel bindViewToContainer:_imageModel.boundView.superview viewStorage:viewStorage];
+        } else {
+            [_replyButtonsModel setReplyMarkup:replyMarkup hasReceipt:false];
+        }
+        if (sizeUpdated) {
+            *sizeUpdated = true;
+        }
+    }
+}
+
+- (void)dealloc {
+    [_callbackButtonInProgressDisposable dispose];
 }
 
 - (void)_maybeRestructureStateModels:(TGModernViewStorage *)viewStorage
@@ -941,6 +1123,26 @@ static CTFontRef textFontForSize(CGFloat size)
 - (void)updateMessageAttributes
 {
     [super updateMessageAttributes];
+    
+    bool previousRead = _read;
+    _read = ![_context isMessageUnread:_message];
+    if (previousRead != _read) {
+        if (_checkSecondModel != nil) {
+            _checkSecondModel.alpha = 1.0f;
+            
+            if (!previousRead && [_checkSecondModel boundView] != nil) {
+                CABasicAnimation *animation = [CABasicAnimation animationWithKeyPath:@"transform.scale"];
+                animation.fromValue = @(1.3f);
+                animation.toValue = @(1.0f);
+                animation.duration = 0.1;
+                animation.removedOnCompletion = true;
+                
+                [[_checkSecondModel boundView].layer addAnimation:animation forKey:@"transform.scale"];
+            }
+        } else {
+            [_imageModel setTimestampString:[self timestampString] signatureString:_authorSignature displayCheckmarks:!_incoming && _deliveryState != TGMessageDeliveryStateFailed checkmarkValue:(_incoming ? 0 : ((_deliveryState == TGMessageDeliveryStateDelivered ? 1 : 0) + (_read ? 1 : 0))) displayViews:_messageViews != nil viewsValue:_messageViews.viewCount animated:true];
+        }
+    }
     
     if (self.isSecret)
     {
@@ -1035,6 +1237,29 @@ static CTFontRef textFontForSize(CGFloat size)
     ((TGMessageImageViewContainer *)[_imageModel boundView]).imageView.delegate = self;
     
     [_replyHeaderModel bindSpecialViewsToContainer:container viewStorage:viewStorage atItemPosition:CGPointMake(itemPosition.x + _contentModel.frame.origin.x + _replyHeaderModel.frame.origin.x, itemPosition.y + _contentModel.frame.origin.y + _replyHeaderModel.frame.origin.y)];
+    
+    [_replyButtonsModel bindSpecialViewsToContainer:container viewStorage:viewStorage atItemPosition:CGPointMake(itemPosition.x, itemPosition.y)];
+    [self subscribeToCallbackButtonInProgress];
+}
+
+- (void)subscribeToCallbackButtonInProgress {
+    if (_replyButtonsModel != nil) {
+        __weak TGImageMessageViewModel *weakSelf = self;
+        [_callbackButtonInProgressDisposable setDisposable:[[[_context callbackInProgress] deliverOn:[SQueue mainQueue]] startWithNext:^(NSDictionary *next) {
+            __strong TGImageMessageViewModel *strongSelf = weakSelf;
+            if (strongSelf != nil) {
+                if (next != nil) {
+                    if ([next[@"mid"] intValue] == strongSelf->_mid) {
+                        [strongSelf->_replyButtonsModel setButtonIndexInProgress:[next[@"buttonIndex"] intValue]];
+                    } else {
+                        [strongSelf->_replyButtonsModel setButtonIndexInProgress:NSNotFound];
+                    }
+                } else {
+                    [strongSelf->_replyButtonsModel setButtonIndexInProgress:NSNotFound];
+                }
+            }
+        }]];
+    }
 }
 
 - (CGRect)effectiveContentFrame
@@ -1053,6 +1278,8 @@ static CTFontRef textFontForSize(CGFloat size)
 - (void)bindViewToContainer:(UIView *)container viewStorage:(TGModernViewStorage *)viewStorage
 {
     _boundOffset = CGPointZero;
+    
+    _boundToContainer = true;
     
     [self _maybeRestructureStateModels:viewStorage];
     
@@ -1088,11 +1315,15 @@ static CTFontRef textFontForSize(CGFloat size)
     if (_shareButtonModel != nil) {
         [(TGModernButtonView *)_shareButtonModel.boundView addTarget:self action:@selector(sharePressed) forControlEvents:UIControlEventTouchUpInside];
     }
+    
+    [self subscribeToCallbackButtonInProgress];
 }
 
 - (void)unbindView:(TGModernViewStorage *)viewStorage
 {
     [self clearLinkSelection];
+    
+    _boundToContainer = false;
     
     _boundOffset = CGPointZero;
     
@@ -1129,6 +1360,8 @@ static CTFontRef textFontForSize(CGFloat size)
     }
     
     [super unbindView:viewStorage];
+    
+    [_callbackButtonInProgressDisposable setDisposable:nil];
 }
 
 - (void)messageDoubleTapGesture:(TGDoubleTapGestureRecognizer *)recognizer
@@ -1154,7 +1387,7 @@ static CTFontRef textFontForSize(CGFloat size)
             {
                 if (_mediaIsAvailable)
                 {
-                    [self activateMedia];
+                    [self activateMedia:[self isInstant]];
                 }
                 else
                     [_context.companionHandle requestAction:@"mediaDownloadRequested" options:@{@"mid": @(_mid)}];
@@ -1211,6 +1444,9 @@ static CTFontRef textFontForSize(CGFloat size)
 
 - (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gestureRecognizer
 {
+    if ([gestureRecognizer isKindOfClass:[UIPanGestureRecognizer class]])
+        return [super gestureRecognizerShouldBegin:gestureRecognizer];
+    
     UIView *imageView = ((TGMessageImageViewContainer *)[_imageModel boundView]).imageView;
     if (imageView != nil)
     {
@@ -1249,7 +1485,7 @@ static CTFontRef textFontForSize(CGFloat size)
     {
         if (![self instantPreviewGesture])
         {
-            [self activateMedia];
+            [self activateMedia:[self isInstant]];
         }
     }
     else
@@ -1342,28 +1578,32 @@ static CTFontRef textFontForSize(CGFloat size)
     }
 }
 
-- (CGSize)contentSizeForContainerSize:(CGSize)containerSize needsContentsUpdate:(bool *)needsContentsUpdate hasDate:(bool)hasDate hasViews:(bool)hasViews
-{
+- (CGSize)contentSizeForContainerSize:(CGSize)containerSize needsContentsUpdate:(bool *)needsContentsUpdate infoWidth:(CGFloat)infoWidth {
     int layoutFlags = TGReusableLabelLayoutMultiline | TGReusableLabelLayoutHighlightLinks;
-    if (hasDate) {
-        layoutFlags |= TGReusableLabelLayoutDateSpacing | (_incoming ? 0 : TGReusableLabelLayoutExtendedDateSpacing);
-    }
-    if (hasViews) {
-        layoutFlags |= TGReusableLabelViewCountSpacing;
-    }
     
     if (_context.commandsEnabled || _isBot)
         layoutFlags |= TGReusableLabelLayoutHighlightCommands;
     
-    bool updateContents = [_textModel layoutNeedsUpdatingForContainerSize:containerSize layoutFlags:layoutFlags];
+    bool updateContents = [_textModel layoutNeedsUpdatingForContainerSize:containerSize additionalTrailingWidth:_webPageFooterModel == nil ? infoWidth : 0.0f layoutFlags:layoutFlags];
     _textModel.layoutFlags = layoutFlags;
+    _textModel.additionalTrailingWidth = infoWidth;
     if (updateContents)
         [_textModel layoutForContainerSize:containerSize];
     
     if (needsContentsUpdate != NULL)
         *needsContentsUpdate = updateContents;
     
-    return _textModel.frame.size;
+    CGSize size = _textModel.frame.size;
+    
+    if (_webPageFooterModel != nil) {
+        CGSize webpageSize = [_webPageFooterModel contentSizeForContainerSize:containerSize contentSize:containerSize infoWidth:infoWidth needsContentsUpdate:needsContentsUpdate];
+        size.height += webpageSize.height;
+        if (_caption.length == 0) {
+            size.height -= 19.0f;
+        }
+    }
+    
+    return size;
 }
 
 - (void)layoutForContainerSize:(CGSize)containerSize
@@ -1382,7 +1622,7 @@ static CTFontRef textFontForSize(CGFloat size)
     
     CGSize headerSize = CGSizeZero;
     
-    if (_replyHeaderModel != nil || _caption.length > 0 || _forwardedHeaderModel != nil || _viaUserModel != nil)
+    if (_replyHeaderModel != nil || _caption.length > 0 || _forwardedHeaderModel != nil || _viaUserModel != nil || _webPageFooterModel != nil)
     {
         topSpacing += 3.0f - TGRetinaPixel;
         bottomSpacing += 6.0f;
@@ -1412,7 +1652,7 @@ static CTFontRef textFontForSize(CGFloat size)
             }
             
             if ((_replyHeaderModel == nil && _forwardedHeaderModel == nil)) {
-                if (_caption.length > 0) {
+                if (_caption.length > 0 || _webPageFooterModel != nil) {
                     headerSize.height += 7.0f;
                 } else {
                     headerSize.height += 4.0f;
@@ -1428,7 +1668,7 @@ static CTFontRef textFontForSize(CGFloat size)
             headerSize = CGSizeMake(_viaUserModel.frame.size.width, _viaUserModel.frame.size.height + 1.0f);
             
             if ((_replyHeaderModel == nil && _forwardedHeaderModel == nil)) {
-                if (_caption.length > 0) {
+                if (_caption.length > 0 || _webPageFooterModel != nil) {
                     headerSize.height += 7.0f;
                 } else {
                     headerSize.height += 4.0f;
@@ -1474,7 +1714,11 @@ static CTFontRef textFontForSize(CGFloat size)
     CGRect imageFrame = CGRectMake(_incomingAppearance ? (avatarOffset + layoutConstants->leftImageInset) : (containerSize.width - _imageModel.frame.size.width - layoutConstants->rightImageInset - unsentOffset), topSpacing + (isPost ? 2.0f : 0.0f), _imageModel.frame.size.width, _imageModel.frame.size.height);
     if (_incomingAppearance && _editing)
         imageFrame.origin.x += 42.0f;
-    if (_replyHeaderModel != nil || _forwardedHeaderModel || _caption.length > 0 || _viaUserModel != nil)
+    
+    if (!_editing && fabs(_replyPanOffset) > FLT_EPSILON)
+        imageFrame.origin.x += _replyPanOffset;
+    
+    if (_replyHeaderModel != nil || _forwardedHeaderModel || _caption.length > 0 || _viaUserModel != nil || _webPageFooterModel != nil)
     {
         if (_incomingAppearance)
             imageFrame.origin.x += 3.0f - TGRetinaPixel;
@@ -1490,16 +1734,39 @@ static CTFontRef textFontForSize(CGFloat size)
     bool hasSignature = false;
     if (_authorSignature.length != 0) {
         hasSignature = true;
-        [_authorSignatureModel layoutForContainerSize:CGSizeMake(contentContainerSize.width - 100.0f, CGFLOAT_MAX)];
+        [_authorSignatureModel layoutForContainerSize:CGSizeMake(contentContainerSize.width - _messageViewsModel.frame.size.width - _editedLabelModel.frame.size.width - _dateModel.frame.size.width - 20.0f, CGFLOAT_MAX)];
     } else {
         _authorSignatureModel.frame = CGRectZero;
     }
     
     CGSize textSize = CGSizeZero;
+    CGFloat infoWidth = 0.0f;
+    if (!_incoming) {
+        if (_messageViews == nil) {
+            infoWidth += 12.0f;
+        } else {
+            infoWidth += MAX(0.0f, 12.0f - _messageViewsModel.frame.size.width);
+            if (!isPost) {
+                infoWidth += 12.0f;
+            }
+        }
+    }
+    infoWidth += _dateModel.frame.size.width + 10.0f;
+    if (_editedLabelModel != nil) {
+        infoWidth += _editedLabelModel.frame.size.width + 4.0f;
+    }
+    
+    if (hasSignature) {
+        infoWidth += _authorSignatureModel.frame.size.width + 6.0f;
+    }
+    
+    if (_messageViews != nil) {
+        infoWidth += _messageViewsModel.frame.size.width + 6.0f;
+    }
+    bool updateContent = false;
     if (_textModel != nil)
     {
-        bool updateContent = false;
-        textSize = [self contentSizeForContainerSize:CGSizeMake(imageFrame.size.width - 12, containerSize.height) needsContentsUpdate:&updateContent hasDate:!hasSignature hasViews:!hasSignature && _messageViews != nil];
+        textSize = [self contentSizeForContainerSize:CGSizeMake(imageFrame.size.width - 12, containerSize.height) needsContentsUpdate:&updateContent infoWidth:infoWidth];
         textSize.height += 4 - TGRetinaPixel;
         
         CGRect textFrame = _textModel.frame;
@@ -1511,11 +1778,17 @@ static CTFontRef textFontForSize(CGFloat size)
             textSize.height -= 1;
         }
         
-        if (hasSignature) {
-            textSize.height += 14.0f;
+        if (_caption.length == 0 && _webPageFooterModel != nil) {
+            textFrame.origin.y -= 19.0f;
         }
         
         _textModel.frame = textFrame;
+    }
+    
+    if (_webPageFooterModel != nil) {
+        bool bottomInset = false;
+        [_webPageFooterModel layoutForContainerSize:contentContainerSize contentSize:contentContainerSize infoWidth:infoWidth needsContentUpdate:&updateContent bottomInset:&bottomInset];
+        _webPageFooterModel.frame = CGRectMake(_textModel.frame.origin.x, CGRectGetMaxY(_textModel.frame), _webPageFooterModel.frame.size.width, _webPageFooterModel.frame.size.height);
     }
     
     _backgroundModel.frame = CGRectMake(imageFrame.origin.x - (_incomingAppearance ? 8.0f - TGRetinaPixel : 3.0f - TGRetinaPixel), topSpacing - (3.0f - TGRetinaPixel) + (isPost ? 2.0f : 0.0f), imageFrame.size.width + 11.0f - 2 * TGRetinaPixel, imageFrame.size.height + 4.0f - TGRetinaPixel + topSpacing + headerSize.height + textSize.height);
@@ -1543,9 +1816,11 @@ static CTFontRef textFontForSize(CGFloat size)
     
     _instantPreviewTouchAreaModel.frame = imageFrame;
     
-    if (_caption.length > 0)
+    if (_caption.length > 0 || _webPageFooterModel != nil)
     {
         _dateModel.frame = CGRectMake(_contentModel.frame.size.width - (_incomingAppearance ? 7 : 20.0f) - _dateModel.frame.size.width - 7.0f - TGRetinaPixel, _contentModel.frame.size.height - 21.0f - (TGIsLocaleArabic() ? 1.0f : 0.0f), _dateModel.frame.size.width, _dateModel.frame.size.height);
+        
+        _editedLabelModel.frame = CGRectMake(_dateModel.frame.origin.x - _editedLabelModel.frame.size.width - 4.0f, _dateModel.frame.origin.y, _editedLabelModel.frame.size.width, _editedLabelModel.frame.size.height);
         
         CGFloat signatureSize = (hasSignature ? (_authorSignatureModel.frame.size.width + 8.0f) : 0.0f);
         
@@ -1557,10 +1832,25 @@ static CTFontRef textFontForSize(CGFloat size)
             }
         }
         
-        if (_authorSignatureModel.text.length != 0) {
-            _authorSignatureModel.frame = CGRectMake(CGRectGetMaxX(_backgroundModel.frame) - _dateModel.frame.size.width - 22.0f - (_incomingAppearance ? 0.0f : 14.0f) - _authorSignatureModel.frame.size.width - 12.0f - (TGIsPad() ? 12.0f : 0.0f), _contentModel.frame.origin.y + _contentModel.frame.size.height - 17 + 1.0f - 12.0f - (TGIsPad() ? 1.0f : 0.0f), _authorSignatureModel.frame.size.width, _authorSignatureModel.frame.size.height);
+        if (_authorSignature.length != 0) {
+            CGFloat minX = _dateModel.frame.origin.x;
+            if (_editedLabelModel != nil) {
+                minX = _editedLabelModel.frame.origin.x;
+            }
+            _authorSignatureModel.frame = CGRectMake(minX - _authorSignatureModel.frame.size.width - 6.0f, _dateModel.frame.origin.y - 1.0f, _authorSignatureModel.frame.size.width, _authorSignatureModel.frame.size.height);
         } else {
             _authorSignatureModel.frame = CGRectZero;
+        }
+        
+        if (_messageViewsModel != nil) {
+            CGFloat minX = _dateModel.frame.origin.x;
+            if (_editedLabelModel != nil) {
+                minX = _editedLabelModel.frame.origin.x;
+            }
+            if (_authorSignature.length != 0) {
+                minX = _authorSignatureModel.frame.origin.x;
+            }
+            _messageViewsModel.frame = CGRectMake(minX - _messageViewsModel.frame.size.width - 6.0f + _contentModel.frame.origin.x, _dateModel.frame.origin.y + _contentModel.frame.origin.y + 2.0f + TGRetinaPixel, _messageViewsModel.frame.size.width, _messageViewsModel.frame.size.height);
         }
         
         CGPoint stateOffset = _contentModel.frame.origin;
@@ -1569,10 +1859,6 @@ static CTFontRef textFontForSize(CGFloat size)
         
         if (_checkSecondModel != nil)
             _checkSecondModel.frame = CGRectMake((_checkSecondEmbeddedInContent ? 0.0f : stateOffset.x) + _contentModel.frame.size.width - 13 - 7.0f - TGRetinaPixel, (_checkSecondEmbeddedInContent ? 0.0f : stateOffset.y) + _contentModel.frame.size.height - 17 + TGRetinaPixel, 12, 11);
-        
-        if (_messageViewsModel != nil) {
-            _messageViewsModel.frame = CGRectMake(CGRectGetMaxX(_backgroundModel.frame) - _dateModel.frame.size.width - 22.0f - (_incomingAppearance ? 0.0f : 14.0f) - signatureSize, _dateModel.frame.origin.y + _contentModel.frame.origin.y + 2.0f + TGRetinaPixel, 1.0f, 1.0f);
-        }
     }
     
     if (_unsentButtonModel != nil)
@@ -1580,8 +1866,28 @@ static CTFontRef textFontForSize(CGFloat size)
         _unsentButtonModel.frame = CGRectMake(containerSize.width - _unsentButtonModel.frame.size.width - 9, _imageModel.frame.size.height + topSpacing + bottomSpacing + headerSize.height + textSize.height - _unsentButtonModel.frame.size.height - ((_collapseFlags & TGModernConversationItemCollapseBottom) ? 5 : 6), _unsentButtonModel.frame.size.width, _unsentButtonModel.frame.size.height);
     }
     
+    CGFloat replyButtonsHeight = 0.0f;
+    if (_replyButtonsModel != nil) {
+        CGRect backgroundFrame = _imageModel.frame;
+        CGFloat backgroundExtension = 10.0f;
+        if (_backgroundModel != nil) {
+            backgroundFrame = _backgroundModel.frame;
+            backgroundExtension = 5.0f;
+        }
+        
+        [_replyButtonsModel layoutForContainerSize:CGSizeMake(MIN(MAX([_replyButtonsModel minimumWidth], backgroundFrame.size.width + backgroundExtension), containerSize.width - 38.0f), containerSize.height)];
+        
+        _replyButtonsModel.frame = CGRectMake((_incomingAppearance ? backgroundFrame.origin.x : (CGRectGetMaxX(backgroundFrame) - _replyButtonsModel.frame.size.width)) + (_backgroundModel == nil ? (_incomingAppearance ? -5.0f : 5.0f) : 0.0f), CGRectGetMaxY(backgroundFrame), _replyButtonsModel.frame.size.width, _replyButtonsModel.frame.size.height);
+        replyButtonsHeight = _replyButtonsModel.frame.size.height;
+        self.avatarOffset = replyButtonsHeight;
+    }
+    else
+    {
+        self.avatarOffset = 7.0f;
+    }
+    
     CGRect frame = self.frame;
-    frame.size = CGSizeMake(containerSize.width, _imageModel.frame.size.height + topSpacing + bottomSpacing + headerSize.height + textSize.height + 4.0f);
+    frame.size = CGSizeMake(containerSize.width, _imageModel.frame.size.height + topSpacing + bottomSpacing + headerSize.height + textSize.height + 4.0f + replyButtonsHeight);
     self.frame = frame;
     
     [_contentModel updateSubmodelContentsIfNeeded];
@@ -1791,7 +2097,7 @@ static CTFontRef textFontForSize(CGFloat size)
 - (void)setupContentModel:(TGModernViewStorage *)viewStorage {
     [self removeContentModel:viewStorage];
     
-    if (_replyHeader != nil || _caption.length != 0 || _forwardPeer != nil || _viaUser != nil)
+    if (_replyHeader != nil || _caption.length != 0 || _forwardPeer != nil || _viaUser != nil || _webPageFooterModel != nil)
     {
         static UIColor *incomingDateColor = nil;
         static UIColor *outgoingDateColor = nil;
@@ -1847,7 +2153,7 @@ static CTFontRef textFontForSize(CGFloat size)
                 authorName = [[NSString alloc] initWithFormat:@"%@ (%@)", authorName, ((TGUser *)_forwardAuthor).displayName];
             }
             
-            NSString *text = [[NSString alloc] initWithFormat:TGLocalizedStatic(@"Message.ForwardedMessage"), authorName];
+            NSString *text = [[NSString alloc] initWithFormat:TGLocalized(@"Message.ForwardedMessage"), authorName];
             
             NSMutableArray *additionalAttributes = [[NSMutableArray alloc] init];
             NSMutableArray *textCheckingResults = [[NSMutableArray alloc] init];
@@ -1856,7 +2162,7 @@ static CTFontRef textFontForSize(CGFloat size)
             
             if (_viaUser != nil) {
                 NSString *formatString = [@" " stringByAppendingString:TGLocalized(@"Conversation.MessageViaUser")];
-                NSString *viaUserName = [@"@" stringByAppendingString:_viaUser.userName];
+                NSString *viaUserName = [@"@" stringByAppendingString:_viaUser.userName == nil ? @"" : _viaUser.userName];
                 NSRange range = [formatString rangeOfString:@"%@"];
                 NSString *finalString = [[NSString alloc] initWithFormat:formatString, viaUserName];
                 
@@ -1915,7 +2221,7 @@ static CTFontRef textFontForSize(CGFloat size)
         
         if (_viaUser != nil && _forwardedHeaderModel == nil) {
             NSString *formatString = TGLocalized(@"Conversation.MessageViaUser");
-            NSString *viaUserName = [@"@" stringByAppendingString:_viaUser.userName];
+            NSString *viaUserName = [@"@" stringByAppendingString:_viaUser.userName != nil ? _viaUser.userName : @""];
             //viaUserName = @"qwoifehiqowfhipoqewipfhqweiopfhpoiqwehfiohpqiew";
             NSRange range = [formatString rangeOfString:@"%@"];
             
@@ -1941,7 +2247,7 @@ static CTFontRef textFontForSize(CGFloat size)
             _authorSignatureModel.text = _authorSignature;
         }
         
-        if (hasCaption)
+        if (hasCaption || _webPageFooterModel != nil)
         {
             int daytimeVariant = 0;
             NSString *dateText = [TGDateUtils stringForShortTime:(int)_message.date daytimeVariant:&daytimeVariant];
@@ -2008,12 +2314,33 @@ static CTFontRef textFontForSize(CGFloat size)
                 _messageViewsModel = [[TGMessageViewsViewModel alloc] init];
                 _messageViewsModel.type = _incomingAppearance ? TGMessageViewsViewTypeIncoming : TGMessageViewsViewTypeOutgoing;
                 _messageViewsModel.count = _messageViews.viewCount;
+                [_messageViewsModel sizeToFit];
                 [self addSubmodel:_messageViewsModel];
                 _messageViewsModel.hidden = _deliveryState != TGMessageDeliveryStateDelivered;
             }
+            
+            if (_isEdited) {
+                static CTFontRef dateFont = NULL;
+                static dispatch_once_t onceToken;
+                dispatch_once(&onceToken, ^
+                {
+                    if (iosMajorVersion() >= 7) {
+                        dateFont = CTFontCreateWithFontDescriptor((__bridge CTFontDescriptorRef)[TGItalicSystemFontOfSize(11.0f) fontDescriptor], 0.0f, NULL);
+                    } else {
+                        UIFont *font = TGItalicSystemFontOfSize(11.0f);
+                        dateFont = CTFontCreateWithName((__bridge CFStringRef)font.fontName, font.pointSize, nil);
+                    }
+                });
+                _editedLabelModel = [[TGModernLabelViewModel alloc] initWithText:TGLocalized(@"Conversation.MessageEditedLabel") textColor:_dateModel.textColor font:dateFont maxWidth:CGFLOAT_MAX];
+                [_contentModel addSubmodel:_editedLabelModel];
+            }
         }
         
-        if (_caption.length == 0)
+        if (_webPageFooterModel != nil) {
+            [_contentModel addSubmodel:_webPageFooterModel];
+        }
+        
+        if (_caption.length == 0 && _webPageFooterModel == nil)
         {
             [_imageModel setTimestampString:[self timestampString] signatureString:_authorSignature displayCheckmarks:!_incoming && _deliveryState != TGMessageDeliveryStateFailed checkmarkValue:(_incoming ? 0 : ((_deliveryState == TGMessageDeliveryStateDelivered ? 1 : 0) + (_read ? 1 : 0))) displayViews:_messageViews != nil viewsValue:_messageViews.viewCount animated:false];
             [_imageModel setDisplayTimestampProgress:_deliveryState == TGMessageDeliveryStatePending];
@@ -2047,6 +2374,8 @@ static CTFontRef textFontForSize(CGFloat size)
     [self removeSubmodel:_messageViewsModel viewStorage:viewStorage];
     _messageViewsModel = nil;
     
+    [_contentModel removeSubmodel:_editedLabelModel viewStorage:viewStorage];
+    
     [self removeSubmodel:_checkFirstModel viewStorage:viewStorage];
     _checkFirstModel = nil;
     
@@ -2062,6 +2391,123 @@ static CTFontRef textFontForSize(CGFloat size)
     [_imageModel setTimestampString:[self timestampString] signatureString:_authorSignature displayCheckmarks:!_incoming && _deliveryState != TGMessageDeliveryStateFailed checkmarkValue:(_incoming ? 0 : ((_deliveryState == TGMessageDeliveryStateDelivered ? 1 : 0) + (_read ? 1 : 0))) displayViews:_messageViews != nil viewsValue:_messageViews.viewCount animated:false];
     [_imageModel setDisplayTimestampProgress:_deliveryState == TGMessageDeliveryStatePending];
     _imageModel.timestampHidden = false;
+}
+
+- (void)setWebPageFooter:(TGWebPageMediaAttachment *)webPage invoice:(TGInvoiceMediaAttachment *)invoice viewStorage:(TGModernViewStorage *)viewStorage
+{
+    _webPage = webPage;
+    if (webPage.url.length == 0 && ![webPage.pageType isEqualToString:@"game"] && ![webPage.pageType isEqualToString:@"invoice"] && ![webPage.pageType isEqualToString:@"message"])
+    {
+    }
+    else
+    {
+        bool isAnimationOrVideo = false;
+        bool imageInText = true;
+        if ([webPage.pageType isEqualToString:@"photo"] || [webPage.pageType isEqualToString:@"video"] || [webPage.pageType isEqualToString:@"gif"] || [webPage.pageType isEqualToString:@"game"] || [webPage.pageType isEqualToString:@"invoice"] || [webPage.pageType isEqualToString:@"message"]) {
+            imageInText = false;
+            isAnimationOrVideo = true;
+        } else if ([webPage.pageType isEqualToString:@"article"]) {
+            CGSize imageSize = CGSizeZero;
+            [webPage.photo.imageInfo imageUrlForLargestSize:&imageSize];
+            if (imageSize.width > 400.0f && webPage.instantPage != nil) {
+                imageInText = false;
+            }
+        }
+        
+        if ([webPage.document.mimeType isEqualToString:@"image/gif"]) {
+            imageInText = false;
+        }
+        
+        bool isMusic = false;
+        bool isVoice = false;
+        bool isSticker = false;
+        bool isRoundVideo = false;
+        
+        for (id attribute in webPage.document.attributes) {
+            if ([attribute isKindOfClass:[TGDocumentAttributeAudio class]]) {
+                if (((TGDocumentAttributeAudio *)attribute).isVoice) {
+                    isVoice = true;
+                } else {
+                    isMusic = true;
+                }
+            } else if ([attribute isKindOfClass:[TGDocumentAttributeVideo class]]) {
+                if (((TGDocumentAttributeVideo *)attribute).isRoundMessage) {
+                    isRoundVideo = true;
+                }
+                else {
+                    isAnimationOrVideo = true;
+                }
+            } else if ([attribute isKindOfClass:[TGDocumentAttributeSticker class]]) {
+                isSticker = true;
+            }
+        }
+        
+        if (isVoice) {
+            _webPageFooterModel = [[TGAudioWebpageFooterModel alloc] initWithContext:_context messageId:_mid incoming:_incomingAppearance webPage:webPage hasViews:_messageViews != nil];
+            _webPageFooterModel.mediaIsAvailable = _mediaIsAvailable;
+            //[_webPageFooterModel updateMediaProgressVisible:_mediaProgressVisible mediaProgress:_mediaProgress animated:false];
+            _webPageFooterModel.boundToContainer = _boundToContainer;
+            [_contentModel addSubmodel:_webPageFooterModel];
+        } else if (isMusic) {
+            _webPageFooterModel = [[TGMusicWebpageFooterModel alloc] initWithContext:_context messageId:_mid incoming:_incomingAppearance webPage:webPage hasViews:_messageViews != nil];
+            _webPageFooterModel.mediaIsAvailable = _mediaIsAvailable;
+            //[_webPageFooterModel updateMediaProgressVisible:_mediaProgressVisible mediaProgress:_mediaProgress animated:false];
+            _webPageFooterModel.boundToContainer = _boundToContainer;
+            [_contentModel addSubmodel:_webPageFooterModel];
+        } else if (isSticker) {
+            _webPageFooterModel = [[TGStickerWebpageFooterModel alloc] initWithContext:_context incoming:_incomingAppearance webPage:webPage hasViews:_messageViews != nil];
+            _webPageFooterModel.mediaIsAvailable = _mediaIsAvailable;
+            //[_webPageFooterModel updateMediaProgressVisible:_mediaProgressVisible mediaProgress:_mediaProgress animated:false];
+            _webPageFooterModel.boundToContainer = _boundToContainer;
+            [_contentModel addSubmodel:_webPageFooterModel];
+        } else if (isRoundVideo) {
+            _webPageFooterModel = [[TGRoundVideoWebpageFooterModel alloc] initWithContext:_context messageId:_mid incoming:_incomingAppearance webPage:webPage];
+            _webPageFooterModel.mediaIsAvailable = _mediaIsAvailable;
+            //[_webPageFooterModel updateMediaProgressVisible:_mediaProgressVisible mediaProgress:_mediaProgress animated:false];
+            _webPageFooterModel.boundToContainer = _boundToContainer;
+            [_contentModel addSubmodel:_webPageFooterModel];
+        } else if (webPage.photo == nil && webPage.document != nil && !isAnimationOrVideo) {
+            _webPageFooterModel = [[TGDocumentWebpageFooterModel alloc] initWithContext:_context incoming:_incomingAppearance webPage:webPage hasViews:_messageViews != nil];
+            _webPageFooterModel.mediaIsAvailable = _mediaIsAvailable;
+            //[_webPageFooterModel updateMediaProgressVisible:_mediaProgressVisible mediaProgress:_mediaProgress animated:false];
+            _webPageFooterModel.boundToContainer = _boundToContainer;
+            [_contentModel addSubmodel:_webPageFooterModel];
+        } else {
+            _webPageFooterModel = [[TGArticleWebpageFooterModel alloc] initWithContext:_context incoming:_incomingAppearance webPage:webPage imageInText:imageInText invoice:invoice];
+            _webPageFooterModel.mediaIsAvailable = _mediaIsAvailable;
+            //[_webPageFooterModel updateMediaProgressVisible:_mediaProgressVisible mediaProgress:_mediaProgress animated:false];
+            _webPageFooterModel.boundToContainer = _boundToContainer;
+            __weak TGImageMessageViewModel *weakSelf = self;
+            ((TGArticleWebpageFooterModel *)_webPageFooterModel).instantPagePressed = ^{
+                __strong TGImageMessageViewModel *strongSelf = weakSelf;
+                if (strongSelf != nil) {
+                    [strongSelf instantPageButtonPressed];
+                }
+            };
+            ((TGArticleWebpageFooterModel *)_webPageFooterModel).viewGroupPressed = ^{
+                __strong TGImageMessageViewModel *strongSelf = weakSelf;
+                if (strongSelf != nil && webPage.url != nil) {
+                    [strongSelf->_context.companionHandle requestAction:@"openLinkRequested" options:@{@"url": webPage.url}];
+                }
+            };
+            [_contentModel addSubmodel:_webPageFooterModel];
+        }
+    }
+    
+    if ([_contentModel boundView] != nil)
+    {
+        [_webPageFooterModel bindSpecialViewsToContainer:_contentModel.boundView viewStorage:viewStorage atItemPosition:CGPointMake(_boundOffset.x + _webPageFooterModel.frame.origin.x, _boundOffset.y + _webPageFooterModel.frame.origin.y)];
+    }
+    
+    [self setupContentModel:viewStorage];
+}
+
+- (void)instantPageButtonPressed {
+    
+}
+
+- (bool)isInstant {
+    return false;
 }
 
 @end

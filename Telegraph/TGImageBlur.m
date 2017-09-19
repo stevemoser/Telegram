@@ -423,10 +423,10 @@ static inline uint32_t premultipliedPixel(uint32_t rgb, uint32_t alpha)
 
 static void addAttachmentImageCorners(void *memory, const unsigned int width, const unsigned int height, const unsigned int stride)
 {
-    const int scale = TGIsRetina() ? 2 : 1;
+    const int scale = (int)TGScreenScaling(); //TGIsRetina() ? 2 : 1;
     
     const int shadowSize = 1;
-    const int strokeWidth = scale >= 2 ? 3 : 2;
+    const int strokeWidth = 1 + scale;
     const int radius = 13 * scale;
     
     const int contextWidth = radius * 2 + shadowSize * 2 + strokeWidth * 2;
@@ -436,8 +436,8 @@ static void addAttachmentImageCorners(void *memory, const unsigned int width, co
     static uint8_t *contextMemory = NULL;
     static uint8_t *alphaMemory = NULL;
 
-    const uint32_t shadowColorRaw = 0x44000000;
-    const uint32_t shadowColorArgb = premultipliedPixel(shadowColorRaw & 0xffffff, ((shadowColorRaw >> 24) & 0xff) - 30);
+    const uint32_t shadowColorRaw = 0x7f86a9c9;
+    const uint32_t shadowColorArgb = premultipliedPixel(shadowColorRaw & 0xffffff, ((shadowColorRaw >> 24) & 0xff) - 20);
     static uint32_t strokeColorArgb = 0xffffffff;
     
     static dispatch_once_t onceToken;
@@ -591,7 +591,11 @@ static void addAttachmentImageCorners(void *memory, const unsigned int width, co
 
 void TGAddImageCorners(void *memory, const unsigned int width, const unsigned int height, const unsigned int stride, int radius)
 {
-    const int scale = TGIsRetina() ? 2 : 1;
+    if (radius <= 0 || radius > width || radius > height) {
+        return;
+    }
+    
+    const int scale = 2; //TGIsRetina() ? 2 : 1;
     
     const int contextWidth = radius * scale;
     const int contextHeight = radius * scale;
@@ -826,9 +830,11 @@ UIImage *TGAverageColorAttachmentImage(UIColor *color, bool attachmentBorder)
 
 UIImage *TGAverageColorAttachmentWithCornerRadiusImage(UIColor *color, bool attachmentBorder, int cornerRadius)
 {
-    CGFloat scale = TGIsRetina() ? 2.0f : 1.0f;
+    CGFloat scale = TGScreenScaling();
     
     CGSize size = CGSizeMake(36.0f, 36.0f);
+    if (cornerRadius > size.width / 2)
+        size = CGSizeMake(cornerRadius * 2, cornerRadius * 2);
     
     const struct { int width, height; } targetContextSize = { (int)(size.width * scale), (int)(size.height * scale)};
     
@@ -854,10 +860,12 @@ UIImage *TGAverageColorAttachmentWithCornerRadiusImage(UIColor *color, bool atta
     CGContextSetFillColorWithColor(targetContext, [color CGColor]);
     CGContextFillRect(targetContext, CGRectMake(0.0f, 0.0f, targetContextSize.width, targetContextSize.height));
     
-    if (attachmentBorder)
+    if (attachmentBorder) {
         addAttachmentImageCorners(targetMemory, targetContextSize.width, targetContextSize.height, (unsigned int)targetBytesPerRow);
-    else
+    }
+    else if (cornerRadius > 0) {
         TGAddImageCorners(targetMemory, targetContextSize.width, targetContextSize.height, (int)targetBytesPerRow, (int)(cornerRadius * scale));
+    }
     
     UIGraphicsPopContext();
     
@@ -1042,12 +1050,12 @@ TGStaticBackdropAreaData *createAdditionalDataBackdropArea(uint8_t *sourceImageM
 
 UIImage *TGBlurredAttachmentImage(UIImage *source, CGSize size, uint32_t *averageColor, bool attachmentBorder)
 {
-    return TGBlurredAttachmentWithCornerRadiusImage(source, size, averageColor, attachmentBorder, 14);
+    return TGBlurredAttachmentWithCornerRadiusImage(source, size, averageColor, attachmentBorder, attachmentBorder ? 14 : 13);
 }
 
 UIImage *TGBlurredAttachmentWithCornerRadiusImage(UIImage *source, CGSize size, uint32_t *averageColor, bool attachmentBorder, int cornerRadius)
 {
-    CGFloat scale = TGIsRetina() ? 2.0f : 1.0f;
+    CGFloat scale = TGScreenScaling(); // //TGIsRetina() ? 2.0f : 1.0f;
     
     CGSize fittedSize = fitSize(size, CGSizeMake(90, 90));
     
@@ -1166,7 +1174,12 @@ UIImage *TGBlurredAttachmentWithCornerRadiusImage(UIImage *source, CGSize size, 
 
 UIImage *TGSecretBlurredAttachmentImage(UIImage *source, CGSize size, uint32_t *averageColor, bool attachmentBorder)
 {
-    CGFloat scale = TGIsRetina() ? 2.0f : 1.0f;
+    return TGSecretBlurredAttachmentWithCornerRadiusImage(source, size, averageColor, attachmentBorder, 13);
+}
+
+UIImage *TGSecretBlurredAttachmentWithCornerRadiusImage(UIImage *source, CGSize size, uint32_t *averageColor, bool attachmentBorder, CGFloat cornerRadius)
+{
+    CGFloat scale = TGScreenScaling(); //TGIsRetina() ? 2.0f : 1.0f;
     
     CGSize fittedSize = fitSize(size, CGSizeMake(40, 40));
     
@@ -1269,7 +1282,7 @@ UIImage *TGSecretBlurredAttachmentImage(UIImage *source, CGSize size, uint32_t *
     if (attachmentBorder) {
         addAttachmentImageCorners(targetMemory, targetContextSize.width, targetContextSize.height, (int)targetBytesPerRow);
     } else {
-        TGAddImageCorners(targetMemory, targetContextSize.width, targetContextSize.height, (int)targetBytesPerRow, (int)(13 * scale));
+        TGAddImageCorners(targetMemory, targetContextSize.width, targetContextSize.height, (int)targetBytesPerRow, (int)(cornerRadius * scale));
     }
     
     CGImageRef bitmapImage = CGBitmapContextCreateImage(targetContext);
@@ -1292,7 +1305,7 @@ UIImage *TGSecretBlurredAttachmentImage(UIImage *source, CGSize size, uint32_t *
 
 UIImage *TGBlurredFileImage(UIImage *source, CGSize size, uint32_t *averageColor, int borderRadius)
 {
-    CGFloat scale = TGIsRetina() ? 2.0f : 1.0f;
+    CGFloat scale = TGScreenScaling(); //TGIsRetina() ? 2.0f : 1.0f;
     
     CGSize fittedSize = fitSize(size, CGSizeMake(90, 90));
     
@@ -1551,12 +1564,12 @@ UIImage *TGBlurredRectangularImage(UIImage *source, CGSize size, CGSize renderSi
 
 UIImage *TGLoadedAttachmentImage(UIImage *source, CGSize size, uint32_t *averageColor, bool attachmentBorder)
 {
-    return TGLoadedAttachmentWithCornerRadiusImage(source, size, averageColor, attachmentBorder, 14);
+    return TGLoadedAttachmentWithCornerRadiusImage(source, size, averageColor, attachmentBorder, attachmentBorder ? 14 : 13, 0);
 }
 
-UIImage *TGLoadedAttachmentWithCornerRadiusImage(UIImage *source, CGSize size, uint32_t *averageColor, bool attachmentBorder, int cornerRadius)
+UIImage *TGLoadedAttachmentWithCornerRadiusImage(UIImage *source, CGSize size, uint32_t *averageColor, bool attachmentBorder, int cornerRadius, int inset)
 {
-    CGFloat scale = TGIsRetina() ? 2.0f : 1.0f;
+    CGFloat scale = TGScreenScaling(); //TGIsRetina() ? 2.0f : 1.0f;
     
     CGFloat actionCircleDiameter = 50.0f;
     
@@ -1608,7 +1621,7 @@ UIImage *TGLoadedAttachmentWithCornerRadiusImage(UIImage *source, CGSize size, u
     CGContextTranslateCTM(targetContext, targetContextSize.width / 2.0f, targetContextSize.height / 2.0f);
     CGContextScaleCTM(targetContext, 1.0f, -1.0f);
     CGContextTranslateCTM(targetContext, -targetContextSize.width / 2.0f, -targetContextSize.height / 2.0f);
-    [source drawInRect:CGRectMake(0, 0, targetContextSize.width, targetContextSize.height) blendMode:kCGBlendModeCopy alpha:1.0f];
+    [source drawInRect:CGRectMake(-inset, -inset, targetContextSize.width + inset * 2, targetContextSize.height + inset * 2) blendMode:kCGBlendModeCopy alpha:1.0f];
     UIGraphicsPopContext();
     
     if (averageColor != NULL)
@@ -1625,7 +1638,9 @@ UIImage *TGLoadedAttachmentWithCornerRadiusImage(UIImage *source, CGSize size, u
     }
     else
     {
-        TGAddImageCorners(targetMemory, targetContextSize.width, targetContextSize.height, (int)targetBytesPerRow, (int)(cornerRadius * scale));
+        if (cornerRadius > 0) {
+            TGAddImageCorners(targetMemory, targetContextSize.width, targetContextSize.height, (int)targetBytesPerRow, (int)(cornerRadius * scale));
+        }
     }
     
     CGImageRef bitmapImage = CGBitmapContextCreateImage(targetContext);
@@ -1691,7 +1706,7 @@ UIImage *TGAnimationFrameAttachmentImage(UIImage *source, CGSize size, CGSize re
 
 UIImage *TGLoadedFileImage(UIImage *source, CGSize size, uint32_t *averageColor, int borderRadius)
 {
-    CGFloat scale = TGIsRetina() ? 2.0f : 1.0f;
+    CGFloat scale = TGScreenScaling(); //TGIsRetina() ? 2.0f : 1.0f;
     
     CGFloat actionCircleDiameter = 50.0f;
     
@@ -1779,12 +1794,12 @@ UIImage *TGLoadedFileImage(UIImage *source, CGSize size, uint32_t *averageColor,
 
 UIImage *TGReducedAttachmentImage(UIImage *source, CGSize originalSize, bool attachmentBorder)
 {
-    return TGReducedAttachmentWithCornerRadiusImage(source, originalSize, attachmentBorder, 14);
+    return TGReducedAttachmentWithCornerRadiusImage(source, originalSize, attachmentBorder, attachmentBorder ? 14 : 13);
 }
 
 UIImage *TGReducedAttachmentWithCornerRadiusImage(UIImage *source, CGSize originalSize, bool attachmentBorder, int cornerRadius)
 {
-    CGFloat scale = TGIsRetina() ? 2.0f : 1.0f;
+    CGFloat scale = TGScreenScaling(); //TGIsRetina() ? 2.0f : 1.0f;
     
     CGSize size = CGSizeMake(CGFloor(originalSize.width * 0.4f), CGFloor(originalSize.height * 0.4f));
     
@@ -2161,4 +2176,101 @@ NSArray *TGBlurredBackgroundImages(UIImage *source, CGSize sourceSize)
     [array addObject:backgroundImage];
     [array addObject:foregroundImage];
     return array;
+}
+
+void telegramFastBlur(int imageWidth, int imageHeight, int imageStride, void *pixels)
+{
+    uint8_t *pix = (uint8_t *)pixels;
+    const int w = imageWidth;
+    const int h = imageHeight;
+    const int stride = imageStride;
+    const int radius = 3;
+    const int r1 = radius + 1;
+    const int div = radius * 2 + 1;
+    
+    if (radius > 15 || div >= w || div >= h)
+    {
+        return;
+    }
+    
+    uint64_t *rgb = malloc(imageStride * imageHeight * sizeof(uint64_t));
+    
+    int x, y, i;
+    
+    int yw = 0;
+    const int we = w - r1;
+    for (y = 0; y < h; y++) {
+        uint64_t cur = get_colors (&pix[yw]);
+        uint64_t rgballsum = -radius * cur;
+        uint64_t rgbsum = cur * ((r1 * (r1 + 1)) >> 1);
+        
+        for (i = 1; i <= radius; i++) {
+            uint64_t cur = get_colors (&pix[yw + i * 4]);
+            rgbsum += cur * (r1 - i);
+            rgballsum += cur;
+        }
+        
+        x = 0;
+        
+#define update(start, middle, end)                         \
+rgb[y * w + x] = (rgbsum >> 4) & 0x00FF00FF00FF00FF; \
+\
+rgballsum += get_colors (&pix[yw + (start) * 4]) -   \
+2 * get_colors (&pix[yw + (middle) * 4]) +  \
+get_colors (&pix[yw + (end) * 4]);      \
+rgbsum += rgballsum;                                 \
+x++;                                                 \
+
+        while (x < r1) {
+            update (0, x, x + r1);
+        }
+        while (x < we) {
+            update (x - r1, x, x + r1);
+        }
+        while (x < w) {
+            update (x - r1, x, w - 1);
+        }
+#undef update
+        
+        yw += stride;
+    }
+    
+    const int he = h - r1;
+    for (x = 0; x < w; x++) {
+        uint64_t rgballsum = -radius * rgb[x];
+        uint64_t rgbsum = rgb[x] * ((r1 * (r1 + 1)) >> 1);
+        for (i = 1; i <= radius; i++) {
+            rgbsum += rgb[i * w + x] * (r1 - i);
+            rgballsum += rgb[i * w + x];
+        }
+        
+        y = 0;
+        int yi = x * 4;
+        
+#define update(start, middle, end)         \
+int64_t res = rgbsum >> 4;           \
+pix[yi] = (uint8_t)res;                       \
+pix[yi + 1] = (uint8_t)(res >> 16);             \
+pix[yi + 2] = (uint8_t)(res >> 32);             \
+\
+rgballsum += rgb[x + (start) * w] -  \
+2 * rgb[x + (middle) * w] + \
+rgb[x + (end) * w];     \
+rgbsum += rgballsum;                 \
+y++;                                 \
+yi += stride;
+        
+        while (y < r1) {
+            update (0, y, y + r1);
+        }
+        while (y < he) {
+            update (y - r1, y, y + r1);
+        }
+        while (y < h) {
+            update (y - r1, y, h - 1);
+        }
+#undef update
+    }
+    
+    free(rgb);
 }

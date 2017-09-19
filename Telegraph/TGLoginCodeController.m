@@ -51,8 +51,6 @@
     bool _dismissing;
     bool _alreadyCountedDown;
     
-    UIView *_grayBackground;
-    UIView *_separatorView;
     UILabel *_titleLabel;
     UIView *_fieldSeparatorView;
     
@@ -60,7 +58,7 @@
     
     SMetaDisposable *_twoStepConfigDisposable;
     
-    UILabel *_termsOfServiceLabel;
+    UIImageView *_otherDeviceView;
 }
 
 @property (nonatomic) NSTimeInterval phoneTimeout;
@@ -89,12 +87,13 @@
 @property (nonatomic, strong) TGProgressWindow *progressWindow;
 
 @property (nonatomic) bool messageSentToTelegram;
+@property (nonatomic) bool messageSentViaPhone;
 
 @end
 
 @implementation TGLoginCodeController
 
-- (id)initWithShowKeyboard:(bool)__unused showKeyboard phoneNumber:(NSString *)phoneNumber phoneCodeHash:(NSString *)phoneCodeHash phoneTimeout:(NSTimeInterval)phoneTimeout messageSentToTelegram:(bool)messageSentToTelegram
+- (id)initWithShowKeyboard:(bool)__unused showKeyboard phoneNumber:(NSString *)phoneNumber phoneCodeHash:(NSString *)phoneCodeHash phoneTimeout:(NSTimeInterval)phoneTimeout messageSentToTelegram:(bool)messageSentToTelegram messageSentViaPhone:(bool)messageSentViaPhone
 {
     self = [super initWithNibName:nil bundle:nil];
     if (self)
@@ -107,6 +106,11 @@
         _phoneCodeHash = phoneCodeHash;
         _phoneTimeout = phoneTimeout;
         _messageSentToTelegram = messageSentToTelegram;
+        _messageSentViaPhone = messageSentViaPhone;
+        
+#ifdef DEBUG
+        _phoneTimeout = 60.0;
+#endif
         
         self.style = TGViewControllerStyleBlack;
         
@@ -193,18 +197,10 @@
     
     CGSize screenSize = [TGViewController screenSizeForInterfaceOrientation:UIInterfaceOrientationPortrait];
     
-    _grayBackground = [[UIView alloc] initWithFrame:CGRectMake(0.0f, 0.0f, screenSize.width, [TGViewController isWidescreen] ? 131.0f : 90.0f)];
-    _grayBackground.backgroundColor = UIColorRGB(0xf2f2f2);
-    [self.view addSubview:_grayBackground];
-    
-    _separatorView = [[UIView alloc] initWithFrame:CGRectMake(0.0f, _grayBackground.frame.origin.y + _grayBackground.frame.size.height, screenSize.width, TGIsRetina() ? 0.5f : 1.0f)];
-    _separatorView.backgroundColor = TGSeparatorColor();
-    [self.view addSubview:_separatorView];
-    
     _titleLabel = [[UILabel alloc] init];
     _titleLabel.backgroundColor = [UIColor clearColor];
     _titleLabel.textColor = [UIColor blackColor];
-    _titleLabel.font = TGIsPad() ? TGUltralightSystemFontOfSize(48.0f) : TGSystemFontOfSize(21.0f);
+    _titleLabel.font = TGIsPad() ? TGUltralightSystemFontOfSize(48.0f) : TGLightSystemFontOfSize(30.0f);
     _titleLabel.text = [TGPhoneUtils formatPhone:_phoneNumber forceInternational:true];
     [_titleLabel sizeToFit];
     _titleLabel.frame = CGRectMake(CGCeil((screenSize.width - _titleLabel.frame.size.width) / 2), [TGViewController isWidescreen] ? 71.0f : 48.0f, _titleLabel.frame.size.width, _titleLabel.frame.size.height);
@@ -216,16 +212,16 @@
     _noticeLabel.textAlignment = NSTextAlignmentCenter;
     _noticeLabel.contentMode = UIViewContentModeCenter;
     _noticeLabel.numberOfLines = 0;
-    [self makeLabelWithFormattedText:_noticeLabel text:_messageSentToTelegram ? TGLocalized(@"Login.CodeSentInternal") : TGLocalized(@"Login.CodeSentSms")];
+    [self makeLabelWithFormattedText:_noticeLabel text:_messageSentToTelegram ? TGLocalized(@"Login.CodeSentInternal") : (_messageSentViaPhone ? TGLocalized(@"Login.CodeSentCall") : TGLocalized(@"Login.CodeSentSms"))];
    
     _noticeLabel.backgroundColor = [UIColor clearColor];
     [self.view addSubview:_noticeLabel];
     
     CGSize noticeSize = [_noticeLabel sizeThatFits:CGSizeMake(300, screenSize.height)];
     CGRect noticeFrame = CGRectMake(0, 0, noticeSize.width, noticeSize.height);
-    _noticeLabel.frame = CGRectIntegral(CGRectOffset(noticeFrame, (screenSize.width - noticeFrame.size.width) / 2, _separatorView.frame.origin.y + ([TGViewController isWidescreen] ? 85.0f : 70.0f)));
+    _noticeLabel.frame = noticeFrame;
 
-    _fieldSeparatorView = [[UIView alloc] initWithFrame:CGRectMake(22, _separatorView.frame.origin.y + 60.0f, screenSize.width - 44, TGIsRetina() ? 0.5f : 1.0f)];
+    _fieldSeparatorView = [[UIView alloc] initWithFrame:CGRectMake(22, 0.0f, screenSize.width - 44, TGScreenPixel)];
     _fieldSeparatorView.backgroundColor = TGSeparatorColor();
     [self.view addSubview:_fieldSeparatorView];
     
@@ -248,7 +244,7 @@
     _timeoutLabel.textAlignment = NSTextAlignmentCenter;
     _timeoutLabel.contentMode = UIViewContentModeCenter;
     _timeoutLabel.numberOfLines = 0;
-    _timeoutLabel.text = [TGStringUtils stringWithLocalizedNumberCharacters:[[NSString alloc] initWithFormat:TGLocalized(@"Login.CallRequestState1"), 1, 0]];
+    _timeoutLabel.text = [TGStringUtils stringWithLocalizedNumberCharacters:[[NSString alloc] initWithFormat:(_messageSentViaPhone ? TGLocalized(@"Login.SmsRequestState1") : TGLocalized(@"Login.CallRequestState1")), 1, 0]];
     _timeoutLabel.backgroundColor = [UIColor clearColor];
     [_timeoutLabel sizeToFit];
     [self.view addSubview:_timeoutLabel];
@@ -259,7 +255,7 @@
     _requestingCallLabel.textAlignment = NSTextAlignmentCenter;
     _requestingCallLabel.contentMode = UIViewContentModeCenter;
     _requestingCallLabel.numberOfLines = 0;
-    _requestingCallLabel.text = TGLocalized(@"Login.CallRequestState2");
+    _requestingCallLabel.text = (_messageSentViaPhone ? TGLocalized(@"Login.SmsRequestState2") : TGLocalized(@"Login.CallRequestState2"));
     _requestingCallLabel.backgroundColor = [UIColor clearColor];
     _requestingCallLabel.alpha = 0.0f;
     [_requestingCallLabel sizeToFit];
@@ -276,48 +272,7 @@
     
     _timeoutLabel.hidden = _messageSentToTelegram || _phoneTimeout >= (3600.0 - DBL_EPSILON);
     
-    if (!_messageSentToTelegram && !(TGIsPad() || [TGViewController isWidescreen] || [TGViewController hasLargeScreen])) {
-        _termsOfServiceLabel = [[UILabel alloc] init];
-        _termsOfServiceLabel.font = TGSystemFontOfSize(TGIsPad() || [TGViewController hasLargeScreen] ? 16.0f : 14.0f);
-        _termsOfServiceLabel.textColor = UIColorRGB(0x999999);
-        [_termsOfServiceLabel addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(termsOfServiceTapGesture:)]];
-        _termsOfServiceLabel.userInteractionEnabled = true;
-        
-        NSMutableString *rawTermsOfServiceString = [[NSMutableString alloc] initWithString:TGLocalized(@"Login.TermsOfServiceLabel")];
-        NSMutableAttributedString *termsOfServiceString = nil;
-        {
-            NSRange extractedRange = NSMakeRange(NSNotFound, 0);
-            
-            NSRange linkRange = [rawTermsOfServiceString rangeOfString:@"["];
-            if (linkRange.location != NSNotFound) {
-                [rawTermsOfServiceString replaceCharactersInRange:linkRange withString:@""];
-                
-                NSRange linkEndRange = [rawTermsOfServiceString rangeOfString:@"]"];
-                if (linkEndRange.location != NSNotFound) {
-                    [rawTermsOfServiceString replaceCharactersInRange:linkEndRange withString:@""];
-                    
-                    extractedRange = NSMakeRange(linkRange.location, linkEndRange.location - linkRange.location);
-                }
-            }
-            
-            termsOfServiceString = [[NSMutableAttributedString alloc] initWithString:rawTermsOfServiceString attributes:@{NSFontAttributeName: _termsOfServiceLabel.font}];
-            if (extractedRange.location != NSNotFound) {
-                [termsOfServiceString addAttribute:NSForegroundColorAttributeName value:TGAccentColor() range:extractedRange];
-            }
-        }
-        
-        _termsOfServiceLabel.attributedText = termsOfServiceString;
-        _termsOfServiceLabel.backgroundColor = [UIColor clearColor];
-        _termsOfServiceLabel.lineBreakMode = NSLineBreakByWordWrapping;
-        _termsOfServiceLabel.textAlignment = NSTextAlignmentCenter;
-        _termsOfServiceLabel.contentMode = UIViewContentModeCenter;
-        _termsOfServiceLabel.numberOfLines = 0;
-        CGSize termsOfServiceSize = [_termsOfServiceLabel sizeThatFits:CGSizeMake(278.0f, CGFLOAT_MAX)];
-        _termsOfServiceLabel.frame = CGRectMake(CGFloor((screenSize.width - termsOfServiceSize.width) / 2.0f), [TGViewController isWidescreen] ? 274.0f : 214.0f, termsOfServiceSize.width, termsOfServiceSize.height);
-        [self.view addSubview:_termsOfServiceLabel];
-    }
-    
-    NSString *codeTextFormat = TGLocalized(@"Login.CallRequestState3");
+    NSString *codeTextFormat = (_messageSentViaPhone ? TGLocalized(@"Login.SmsRequestState3") : TGLocalized(@"Login.CallRequestState3"));
     NSRange linkRange = NSMakeRange(NSNotFound, 0);
     
     NSMutableString *codeText = [[NSMutableString alloc] init];
@@ -365,11 +320,16 @@
     [_didNotReceiveCodeButton addTarget:self action:@selector(didNotReceiveCodeButtonPressed) forControlEvents:UIControlEventTouchUpInside];
     _didNotReceiveCodeButton.hidden = !_messageSentToTelegram;
     
-    CGFloat labelAnchor = _separatorView.frame.origin.y + ([TGViewController isWidescreen] ? 160 : 134);
+    CGFloat labelAnchor = 0.0f;
     
     _timeoutLabel.frame = CGRectMake((int)((screenSize.width - _timeoutLabel.frame.size.width) / 2), labelAnchor, _timeoutLabel.frame.size.width, _timeoutLabel.frame.size.height);
     _requestingCallLabel.frame = CGRectMake((int)((screenSize.width - _requestingCallLabel.frame.size.width) / 2), labelAnchor, _requestingCallLabel.frame.size.width, _requestingCallLabel.frame.size.height);
     _callSentLabel.frame = CGRectMake((int)((screenSize.width - _callSentLabel.frame.size.width) / 2), labelAnchor, _callSentLabel.frame.size.width, _callSentLabel.frame.size.height);
+    
+    if (_messageSentToTelegram) {
+        _otherDeviceView = [[UIImageView alloc] initWithImage:[UIImage imageNamed:@"LoginCodeOtherDevice.png"]];
+        [self.view addSubview:_otherDeviceView];
+    }
     
     [self updateInterface:self.interfaceOrientation];
 }
@@ -484,7 +444,7 @@
     if (remainingTime < 0)
         remainingTime = 0;
     
-    _timeoutLabel.text = [TGStringUtils stringWithLocalizedNumberCharacters:[NSString stringWithFormat:TGLocalized(@"Login.CallRequestState1"), ((int)remainingTime) / 60, ((int)remainingTime) % 60]];
+    _timeoutLabel.text = [TGStringUtils stringWithLocalizedNumberCharacters:[NSString stringWithFormat:(_messageSentViaPhone ? TGLocalized(@"Login.SmsRequestState1") : TGLocalized(@"Login.CallRequestState1")), ((int)remainingTime) / 60, ((int)remainingTime) % 60]];
     CGSize size = [_timeoutLabel.text sizeWithFont:_timeoutLabel.font];
     _timeoutLabel.frame = CGRectMake(_timeoutLabel.frame.origin.x, _timeoutLabel.frame.origin.y, size.width, size.height);
     [self updateInterface:self.interfaceOrientation];
@@ -541,63 +501,131 @@
     CGFloat topOffset = 0.0f;
     CGFloat titleLabelOffset = 0.0f;
     CGFloat noticeLabelOffset = 0.0f;
-    CGFloat countryButtonOffset = 0.0f;
     CGFloat sideInset = 0.0f;
+    CGFloat didNotReceiveCodeOffset = 0.0f;
+    CGFloat timeoutOffset = 0.0f;
+    CGFloat otherDeviceOffset = 0.0f;
     
     if (TGIsPad())
     {
         if (UIInterfaceOrientationIsPortrait(orientation))
         {
-            topOffset = 305.0f;
-            titleLabelOffset = topOffset - 108.0f;
+            if (_otherDeviceView != nil) {
+                otherDeviceOffset = 64.0f;
+                titleLabelOffset = 94.0f + 48.0f;
+                noticeLabelOffset = 175.0f + 40.0f;
+                topOffset = 310.0f + 40.0f;
+            } else {
+                titleLabelOffset = 94.0f;
+                noticeLabelOffset = 175.0f;
+                topOffset = 310.0f;
+            }
+            if (_noticeLabel.frame.size.height < 35.0f) {
+                topOffset -= 0.0f;
+            }
+            didNotReceiveCodeOffset = 660.0f;
+            timeoutOffset = 660.0f;
         }
         else
         {
-            topOffset = 135.0f;
-            titleLabelOffset = topOffset - 78.0f;
+            otherDeviceOffset = -1000.0f;
+            titleLabelOffset = 54.0f;
+            noticeLabelOffset = 125.0f;
+            topOffset = 180.0f;
+        
+            if (_noticeLabel.frame.size.height < 35.0f) {
+                topOffset -= 8.0f;
+            }
+            didNotReceiveCodeOffset = 320.0f;
+            timeoutOffset = 320.0f;
         }
         
-        noticeLabelOffset = topOffset + 143.0f;
-        countryButtonOffset = topOffset;
         sideInset = 130.0f;
     }
     else
     {
         topOffset = [TGViewController isWidescreen] ? 131.0f : 90.0f;
         titleLabelOffset = ([TGViewController isWidescreen] ? 71.0f : 48.0f) + 9.0f;
-        noticeLabelOffset = [TGViewController isWidescreen] ? 274.0f : 214.0f;
-        countryButtonOffset = [TGViewController isWidescreen] ? 131.0f : 90.0f;
+        noticeLabelOffset = 100.0f;
+        topOffset = 120.0f;
+        
+        if (screenSize.height < 481.0f) {
+            otherDeviceOffset = -1000.0f;
+            titleLabelOffset = 52.0f;
+            noticeLabelOffset = 95.0f;
+            topOffset = 138.0f;
+            if (_noticeLabel.frame.size.height < 35.0f) {
+                topOffset -= 13.0f;
+            }
+            didNotReceiveCodeOffset = 215.0f;
+            timeoutOffset = 215.0f;
+        } else if (screenSize.height < 569.0f) {
+            otherDeviceOffset = -1000.0f;
+            titleLabelOffset = 68.0f;
+            noticeLabelOffset = 115.0f;
+            topOffset = 178.0f;
+            if (_noticeLabel.frame.size.height < 35.0f) {
+                topOffset -= 13.0f;
+            }
+            didNotReceiveCodeOffset = 290.0f;
+            timeoutOffset = 290.0f;
+        } else if (screenSize.height < 668.0f) {
+            if (_otherDeviceView != nil) {
+                otherDeviceOffset = 54.0f;
+                titleLabelOffset = 74.0f + 48.0f;
+                noticeLabelOffset = 135.0f + 40.0f;
+                topOffset = 220.0f + 40.0f;
+            } else {
+                titleLabelOffset = 74.0f;
+                noticeLabelOffset = 135.0f;
+                topOffset = 220.0f;
+            }
+            if (_noticeLabel.frame.size.height < 35.0f) {
+                topOffset -= 8.0f;
+            }
+            didNotReceiveCodeOffset = 388.0f;
+            timeoutOffset = 388.0f;
+        } else {
+            if (_otherDeviceView != nil) {
+                otherDeviceOffset = 64.0f;
+                titleLabelOffset = 94.0f + 48.0f;
+                noticeLabelOffset = 155.0f + 40.0f;
+                topOffset = 270.0f + 40.0f;
+            } else {
+                titleLabelOffset = 84.0f;
+                noticeLabelOffset = 155.0f;
+                topOffset = 270.0f;
+            }
+            if (_noticeLabel.frame.size.height < 35.0f) {
+                topOffset -= 8.0f;
+            }
+            didNotReceiveCodeOffset = 460.0f;
+            timeoutOffset = 460.0f;
+        }
     }
     
-    _grayBackground.frame = CGRectMake(0.0f, 0.0f, screenSize.width, topOffset);
-    _separatorView.frame = CGRectMake(0.0f, topOffset, screenSize.width, _separatorView.frame.size.height);
+    if (_otherDeviceView != nil) {
+        _otherDeviceView.frame = CGRectMake(CGFloor((screenSize.width - _otherDeviceView.frame.size.width) / 2.0f), otherDeviceOffset, _otherDeviceView.frame.size.width, _otherDeviceView.frame.size.height);
+    }
     
     _titleLabel.frame = CGRectMake(CGCeil((screenSize.width - _titleLabel.frame.size.width) / 2), titleLabelOffset, _titleLabel.frame.size.width, _titleLabel.frame.size.height);
     
     CGSize noticeSize = [_noticeLabel sizeThatFits:CGSizeMake(300, screenSize.height)];
     CGRect noticeFrame = CGRectMake(0, 0, noticeSize.width, noticeSize.height);
-    _noticeLabel.frame = CGRectIntegral(CGRectOffset(noticeFrame, (screenSize.width - noticeFrame.size.width) / 2, _separatorView.frame.origin.y + ([TGViewController isWidescreen] ? 85.0f : 70.0f)));
+    _noticeLabel.frame = CGRectIntegral(CGRectOffset(noticeFrame, (screenSize.width - noticeFrame.size.width) / 2, noticeLabelOffset));
     
-    _fieldSeparatorView.frame = CGRectMake(22 + sideInset, _separatorView.frame.origin.y + 60.0f, screenSize.width - 44 - sideInset * 2.0f, TGIsRetina() ? 0.5f : 1.0f);
+    _fieldSeparatorView.frame = CGRectMake(22 + sideInset, topOffset + 60.0f, screenSize.width - 44 - sideInset * 2.0f, TGScreenPixel);
     
     _codeField.frame = CGRectMake(sideInset, _fieldSeparatorView.frame.origin.y - 56.0f, screenSize.width - sideInset * 2.0f, 56.0f);
     
-    CGFloat labelAnchor = CGRectGetMaxY(_noticeLabel.frame) + 4.0f + ([TGViewController isWidescreen] ? 10.0f : 0.0f);
+    CGFloat labelAnchor = timeoutOffset;
     
     _timeoutLabel.frame = CGRectMake((int)((screenSize.width - _timeoutLabel.frame.size.width) / 2), labelAnchor, _timeoutLabel.frame.size.width, _timeoutLabel.frame.size.height);
     _requestingCallLabel.frame = CGRectMake((int)((screenSize.width - _requestingCallLabel.frame.size.width) / 2), labelAnchor, _requestingCallLabel.frame.size.width, _requestingCallLabel.frame.size.height);
     _callSentLabel.frame = CGRectMake((int)((screenSize.width - _callSentLabel.frame.size.width) / 2), labelAnchor, _callSentLabel.frame.size.width, _callSentLabel.frame.size.height);
     
     [_didNotReceiveCodeButton sizeToFit];
-    _didNotReceiveCodeButton.frame = CGRectMake(CGCeil((screenSize.width - _didNotReceiveCodeButton.frame.size.width) / 2.0f), CGRectGetMaxY(_noticeLabel.frame) + 2.0f, _didNotReceiveCodeButton.frame.size.width, _didNotReceiveCodeButton.frame.size.height);
-    
-    if (_termsOfServiceLabel != nil) {
-        CGSize termsOfServiceSize = [_termsOfServiceLabel sizeThatFits:CGSizeMake(278.0f, CGFLOAT_MAX)];
-        
-        CGFloat termsOfServiceOffset = 10.0f;
-        
-        _termsOfServiceLabel.frame = CGRectMake(CGFloor((screenSize.width - termsOfServiceSize.width) / 2.0f), screenSize.height - termsOfServiceSize.height - termsOfServiceOffset - 216.0f, termsOfServiceSize.width, termsOfServiceSize.height);
-    }
+    _didNotReceiveCodeButton.frame = CGRectMake(CGCeil((screenSize.width - _didNotReceiveCodeButton.frame.size.width) / 2.0f), didNotReceiveCodeOffset, _didNotReceiveCodeButton.frame.size.width, _didNotReceiveCodeButton.frame.size.height);
 }
 
 - (void)setInProgress:(bool)inProgress
@@ -662,14 +690,8 @@
 
 #pragma mark -
 
-- (void)backgroundTapped:(UITapGestureRecognizer *)recognizer
+- (void)backgroundTapped:(UITapGestureRecognizer *)__unused recognizer
 {
-    return;
-    
-    if (recognizer.state == UIGestureRecognizerStateRecognized)
-    {
-        [_codeField resignFirstResponder];
-    }
 }
 
 - (void)inputBackgroundTapped:(UITapGestureRecognizer *)recognizer
@@ -841,7 +863,7 @@
                 if (resultCode == TGSignInResultNotRegistered)
                 {
                     int stateDate = [[TGAppDelegateInstance loadLoginState][@"date"] intValue];
-                    [TGAppDelegateInstance saveLoginStateWithDate:stateDate phoneNumber:_phoneNumber phoneCode:_phoneCode phoneCodeHash:_phoneCodeHash codeSentToTelegram:false firstName:nil lastName:nil photo:nil];
+                    [TGAppDelegateInstance saveLoginStateWithDate:stateDate phoneNumber:_phoneNumber phoneCode:_phoneCode phoneCodeHash:_phoneCodeHash codeSentToTelegram:false codeSentViaPhone:false firstName:nil lastName:nil photo:nil resetAccountState:nil];
                     
                     errorText = nil;
                     [self pushControllerRemovingSelf:[[TGLoginProfileController alloc] initWithShowKeyboard:_codeField.isFirstResponder phoneNumber:_phoneNumber phoneCodeHash:_phoneCodeHash phoneCode:_phoneCode]];
@@ -879,9 +901,11 @@
                 if (resultCode == ASStatusSuccess)
                 {
                     int stateDate = [[TGAppDelegateInstance loadLoginState][@"date"] intValue];
-                    [TGAppDelegateInstance saveLoginStateWithDate:stateDate phoneNumber:_phoneNumber phoneCode:nil phoneCodeHash:_phoneCodeHash codeSentToTelegram:false firstName:nil lastName:nil photo:nil];
+                    [TGAppDelegateInstance saveLoginStateWithDate:stateDate phoneNumber:_phoneNumber phoneCode:nil phoneCodeHash:_phoneCodeHash codeSentToTelegram:false codeSentViaPhone:false firstName:nil lastName:nil photo:nil resetAccountState:nil];
                     
-                    TGLoginCodeController *controller = [[TGLoginCodeController alloc] initWithShowKeyboard:(_codeField.isFirstResponder) phoneNumber:_phoneNumber phoneCodeHash:_phoneCodeHash phoneTimeout:_phoneTimeout messageSentToTelegram:false];
+                    bool messageSentViaPhone = [(((SGraphObjectNode *)result).object)[@"messageSentViaPhone"] intValue];
+                    
+                    TGLoginCodeController *controller = [[TGLoginCodeController alloc] initWithShowKeyboard:(_codeField.isFirstResponder) phoneNumber:_phoneNumber phoneCodeHash:_phoneCodeHash phoneTimeout:_phoneTimeout messageSentToTelegram:false messageSentViaPhone:messageSentViaPhone];
                     
                     NSMutableArray *viewControllers = [[NSMutableArray alloc] initWithArray:self.navigationController.viewControllers];
                     [viewControllers removeLastObject];
@@ -898,6 +922,8 @@
                         errorText = TGLocalized(@"Login.CodeFloodError");
                     else if (resultCode == TGSendCodeErrorNetwork)
                         errorText = TGLocalized(@"Login.NetworkError");
+                    else if (resultCode == TGSendCodeErrorPhoneFlood)
+                        errorText = TGLocalized(@"Login.PhoneFloodError");
                     
                     TGAlertView *alertView = [[TGAlertView alloc] initWithTitle:nil message:errorText delegate:nil cancelButtonTitle:TGLocalized(@"Common.OK") otherButtonTitles:nil];
                     [alertView show];
@@ -927,6 +953,8 @@
                         errorText = TGLocalized(@"Login.CodeFloodError");
                     else if (resultCode == TGSendCodeErrorNetwork)
                         errorText = TGLocalized(@"Login.NetworkError");
+                    else if (resultCode == TGSendCodeErrorPhoneFlood)
+                        errorText = TGLocalized(@"Login.PhoneFloodError");
                     
                     TGAlertView *alertView = [[TGAlertView alloc] initWithTitle:nil message:errorText delegate:nil cancelButtonTitle:TGLocalized(@"Common.OK") otherButtonTitles:nil];
                     [alertView show];

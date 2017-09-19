@@ -3,6 +3,7 @@
 #import "ActionStage.h"
 #import "SGraphObjectNode.h"
 
+#import "TGTimelineItem.h"
 #import "TGTimelineUploadPhotoRequestBuilder.h"
 #import "TGDeleteProfilePhotoActor.h"
 
@@ -59,11 +60,23 @@
 
 #import "TGMediaAvatarMenuMixin.h"
 
+#import "TGUserAboutSetupController.h"
+
+#import "TGStickerPacksSettingsController.h"
+#import "TGRecentCallsController.h"
+
+#import "TGStickersSignals.h"
+#import "TGUserSignal.h"
+
+#import "TGLocalizationSelectionController.h"
+
 @interface TGAccountSettingsController () <TGWallpaperControllerDelegate>
 {
     int32_t _uid;
     
     bool _editing;
+    
+    TGCollectionMenuSection *_settingsSection;
     
     TGAccountInfoCollectionItem *_profileDataItem;
     TGButtonCollectionItem *_setProfilePhotoItem;
@@ -72,10 +85,14 @@
     
     TGVariantCollectionItem *_usernameItem;
     TGVariantCollectionItem *_phoneNumberItem;
+    TGVariantCollectionItem *_aboutItem;
+    TGVariantCollectionItem *_languageItem;
     
     TGDisclosureActionCollectionItem *_notificationsItem;
     TGDisclosureActionCollectionItem *_privacySettingsItem;
     TGDisclosureActionCollectionItem *_chatSettingsItem;
+    TGDisclosureActionCollectionItem *_callSettingsItem;
+    TGDisclosureActionCollectionItem *_stickerSettingsItem;
     TGDisclosureActionCollectionItem *_supportItem;
     TGDisclosureActionCollectionItem *_faqItem;
     TGVersionCollectionItem *_versionItem;
@@ -85,6 +102,10 @@
     TGCollectionMenuSection *_watchSection;
     TGDisclosureActionCollectionItem *_watchItem;
     SMetaDisposable *_watchAppInstalledDisposable;
+    
+    id<SDisposable> _stickerPacksDisposable;
+    id<SDisposable> _updatedFeaturedStickerPacksDisposable;
+    id<SDisposable> _userCachedDataDisposable;
     
     TGMediaAvatarMenuMixin *_avatarMixin;
 }
@@ -105,7 +126,8 @@
         [ActionStageInstance() watchForPaths:@[
             @"/tg/userdatachanges",
             @"/tg/userpresencechanges",
-            @"/tg/service/synchronizationstate"
+            @"/tg/service/synchronizationstate",
+            @"/tg/calls/enabled"
         ] watcher:self];
         
         [ActionStageInstance() requestActor:@"/tg/service/synchronizationstate" options:nil flags:0 watcher:self];
@@ -125,20 +147,38 @@
         
         _wallpapersItem = [[TGWallpapersCollectionItem alloc] initWithAction:@selector(wallpapersPressed) title:TGLocalized(@"Settings.ChatBackground")];
         _wallpapersItem.interfaceHandle = _actionHandle;
+        _languageItem = [[TGVariantCollectionItem alloc] initWithTitle:TGLocalized(@"Settings.AppLanguage") variant:TGLocalized(@"Localization.LanguageName") action:@selector(languagePressed)];
         
-        TGCollectionMenuSection *settingsSection = [[TGCollectionMenuSection alloc] initWithItems:@[
-            (_notificationsItem = [[TGDisclosureActionCollectionItem alloc] initWithTitle:TGLocalized(@"Settings.NotificationsAndSounds") action:@selector(notificationsAndSoundsPressed)]),
-            (_privacySettingsItem = [[TGDisclosureActionCollectionItem alloc] initWithTitle:TGLocalized(@"Settings.PrivacySettings") action:@selector(privacySettingsPressed)]),
-            (_chatSettingsItem = [[TGDisclosureActionCollectionItem alloc] initWithTitle:TGLocalized(@"Settings.ChatSettings") action:@selector(chatSettingsPressed)]),
-            _wallpapersItem
-        ]];
-        [self.menuSections addSection:settingsSection];
+        NSMutableArray *settingsItems = [[NSMutableArray alloc] init];
+        [settingsItems addObject:(_notificationsItem = [[TGDisclosureActionCollectionItem alloc] initWithTitle:TGLocalized(@"Settings.NotificationsAndSounds") action:@selector(notificationsAndSoundsPressed)])];
+        [settingsItems addObject:(_privacySettingsItem = [[TGDisclosureActionCollectionItem alloc] initWithTitle:TGLocalized(@"Settings.PrivacySettings") action:@selector(privacySettingsPressed)])];
+        [settingsItems addObject:(_chatSettingsItem = [[TGDisclosureActionCollectionItem alloc] initWithTitle:TGLocalized(@"Settings.ChatSettings") action:@selector(chatSettingsPressed)])];
+        [settingsItems addObject:(_stickerSettingsItem = [[TGDisclosureActionCollectionItem alloc] initWithTitle:TGLocalized(@"ChatSettings.Stickers") action:@selector(stickerSettingsPressed)])];
+        [settingsItems addObject:_wallpapersItem];
+        [settingsItems addObject:_languageItem];
+        
+        _settingsSection = [[TGCollectionMenuSection alloc] initWithItems:settingsItems];
+        [self.menuSections addSection:_settingsSection];
+        
+        [TGDatabaseInstance() customProperty:@"phoneCallsEnabled" completion:^(NSData *value)
+        {
+            TGDispatchOnMainThread(^
+            {
+                int32_t phoneCallsEnabled = false;
+                if (value.length == 4) {
+                    [value getBytes:&phoneCallsEnabled];
+                }
+                [self updatePhoneCallsEnabled:phoneCallsEnabled];
+            });
+        }];
         
         _watchItem = [[TGDisclosureActionCollectionItem alloc] initWithTitle:TGLocalized(@"Settings.AppleWatch") action:@selector(watchPressed)];
         
         __weak TGAccountSettingsController *weakSelf = self;
         _watchAppInstalledDisposable = [[SMetaDisposable alloc] init];
-        [_watchAppInstalledDisposable setDisposable:[[[TGBridgeServer instance] watchAppInstalledSignal] startWithNext:^(NSNumber *next)
+        [_watchAppInstalledDisposable setDisposable:[[[[TGBridgeServer instanceSignal] mapToSignal:^SSignal *(TGBridgeServer *bridgeServer) {
+            return [bridgeServer watchAppInstalledSignal];
+        }] deliverOn:[SQueue mainQueue]] startWithNext:^(NSNumber *next)
         {
             __strong TGAccountSettingsController *strongSelf = weakSelf;
             if (strongSelf == nil)
@@ -167,7 +207,9 @@
         
         _phoneNumberItem = [[TGVariantCollectionItem alloc] initWithTitle:TGLocalized(@"Settings.PhoneNumber") action:@selector(phoneNumberPressed)];
         _usernameItem = [[TGVariantCollectionItem alloc] initWithTitle:TGLocalized(@"Settings.Username") action:@selector(usernamePressed)];
-        TGCollectionMenuSection *usernameSection = [[TGCollectionMenuSection alloc] initWithItems:@[_phoneNumberItem, _usernameItem]];
+        _aboutItem = [[TGVariantCollectionItem alloc] initWithTitle:TGLocalized(@"Settings.About") action:@selector(aboutPressed)];
+        _aboutItem.flexibleLayout = true;
+        TGCollectionMenuSection *usernameSection = [[TGCollectionMenuSection alloc] initWithItems:@[_phoneNumberItem, _usernameItem, _aboutItem]];
         [self.menuSections addSection:usernameSection];
         
         _supportItem = [[TGDisclosureActionCollectionItem alloc] initWithTitle:TGLocalized(@"Settings.Support") action:@selector(supportPressed)];
@@ -189,6 +231,8 @@
             //_versionItem
         ]];
         [self.menuSections addSection:infoSection];
+        
+        [ActionStageInstance() watchForPath:@"/tg/loggedOut" watcher:self];
     }
     return self;
 }
@@ -196,8 +240,12 @@
 - (void)dealloc
 {
     [_watchAppInstalledDisposable dispose];
+    [_stickerPacksDisposable dispose];
+    [_updatedFeaturedStickerPacksDisposable dispose];
+    [_userCachedDataDisposable dispose];
     [_actionHandle reset];
     [ActionStageInstance() removeWatcher:self];
+    [_progressWindow dismiss:true];
 }
 
 - (void)loadView
@@ -216,6 +264,46 @@
     
     _accountEditingBarButtonItem = nil;;
     [self setRightBarButtonItem:[[UIBarButtonItem alloc] initWithTitle:TGLocalized(@"Common.Edit") style:UIBarButtonItemStylePlain target:self action:@selector(editButtonPressed)]];
+    
+    __weak TGAccountSettingsController *weakSelf = self;
+    _stickerPacksDisposable = [[[TGStickersSignals stickerPacks] deliverOn:[SQueue mainQueue]] startWithNext:^(NSDictionary *dict)
+    {
+        __strong TGAccountSettingsController *strongSelf = weakSelf;
+        if (strongSelf != nil && ((NSArray *)dict[@"packs"]).count != 0)
+        {
+            NSUInteger unreadFeaturedCount = ((NSArray *)dict[@"featuredPacksUnreadIds"]).count;
+            [strongSelf->_stickerSettingsItem setBadge:unreadFeaturedCount == 0 ? nil : [NSString stringWithFormat:@"%d", (int)unreadFeaturedCount]];
+        }
+    }];
+    
+    [[TGUserSignal updatedUserCachedDataWithUserId:_uid] startWithNext:nil];
+    _userCachedDataDisposable = [[[TGDatabaseInstance() userCachedData:_uid] deliverOn:[SQueue mainQueue]] startWithNext:^(TGCachedUserData *next)
+    {
+        __strong TGAccountSettingsController *strongSelf = weakSelf;
+        if (strongSelf != nil)
+        {
+            [strongSelf->_aboutItem setVariant:next.about.length == 0 ? TGLocalized(@"Settings.AboutEmpty") : [strongSelf _shortStringForAbout:next.about]];
+        }
+    }];
+    
+    _updatedFeaturedStickerPacksDisposable = [[TGStickersSignals updatedFeaturedStickerPacks] startWithNext:nil];
+}
+
+- (NSString *)_shortStringForAbout:(NSString *)about
+{
+    const NSInteger maxLength = 200;
+    
+    static NSString *tokenString = nil;
+    if (tokenString == nil)
+    {
+        unichar tokenChar = 0x2026;
+        tokenString = [[NSString alloc] initWithCharacters:&tokenChar length:1];
+    }
+
+    if (about.length > maxLength)
+        about = [NSString stringWithFormat:@"%@%@", [[about substringToIndex:maxLength] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]], tokenString];
+    
+    return about;
 }
 
 - (void)viewWillAppear:(BOOL)animated
@@ -368,7 +456,7 @@
     NSError *error = nil;
     [fileManager createDirectoryAtPath:tmpImagesPath withIntermediateDirectories:true attributes:nil error:&error];
     NSString *absoluteFilePath = [tmpImagesPath stringByAppendingPathComponent:[NSString stringWithFormat:@"%@.bin", filePath]];
-    [imageData writeToFile:absoluteFilePath atomically:false];
+    [imageData writeToFile:absoluteFilePath atomically:true];
     
     [options setObject:filePath forKey:@"originalFileUrl"];
     
@@ -406,7 +494,7 @@
 
 - (void)_commitDeleteAvatar
 {
-    [_profileDataItem setUpdatingAvatar:nil hasUpdatingAvatar:true];
+    [_profileDataItem setHasUpdatingAvatar:true];
     [_setProfilePhotoItem setEnabled:false];
     
     static int actionId = 0;
@@ -415,6 +503,19 @@
     NSString *action = [[NSString alloc] initWithFormat:@"/tg/timeline/(%" PRId32 ")/deleteAvatar/(%d)", _uid, actionId++];
     [ActionStageInstance() requestActor:action options:options watcher:self];
     [ActionStageInstance() requestActor:action options:options watcher:TGTelegraphInstance];
+}
+
+- (void)updatePhoneCallsEnabled:(bool)enabled
+{
+    if (enabled && _callSettingsItem == nil) {
+        _callSettingsItem = [[TGDisclosureActionCollectionItem alloc] initWithTitle:TGLocalized(@"CallSettings.RecentCalls") action:@selector(callSettingsPressed)];
+        [_settingsSection insertItem:_callSettingsItem atIndex:3];
+        [self.collectionView reloadData];
+    } else if (!enabled && _callSettingsItem != nil) {
+        [_settingsSection deleteItem:_callSettingsItem];
+        _callSettingsItem = nil;
+        [self.collectionView reloadData];
+    }
 }
 
 - (void)setEditing:(BOOL)editing animated:(BOOL)__unused animated
@@ -494,6 +595,15 @@
     [self.navigationController pushViewController:[[TGChatSettingsController alloc] init] animated:true];
 }
 
+- (void)callSettingsPressed
+{
+    [self.navigationController pushViewController:[[TGRecentCallsController alloc] initWithController:TGAppDelegateInstance.rootController.callsController] animated:true];
+}
+
+- (void)stickerSettingsPressed {
+    [self.navigationController pushViewController:[[TGStickerPacksSettingsController alloc] initWithEditing:false masksMode:false] animated:true];
+}
+
 - (void)wallpapersPressed
 {
     [self.navigationController pushViewController:[[TGWallpaperListController alloc] init] animated:true];
@@ -546,6 +656,8 @@
 {
     __weak TGAccountSettingsController *weakSelf = self;
     
+    [[TGInterfaceManager instance] dismissAllCalls];
+    
     /*[[[TGActionSheet alloc] initWithTitle:nil actions:@[
         [[TGActionSheetAction alloc] initWithTitle:TGLocalized(@"Settings.Logout") action:@"logout" type:TGActionSheetActionTypeDestructive],
         [[TGActionSheetAction alloc] initWithTitle:TGLocalized(@"Common.Cancel") action:@"cancel" type:TGActionSheetActionTypeCancel],
@@ -585,7 +697,12 @@
 
 - (void)actionStageResourceDispatched:(NSString *)path resource:(id)resource arguments:(id)__unused arguments
 {
-    if ([path isEqualToString:@"/tg/service/synchronizationstate"])
+    if ([path isEqualToString:@"/tg/loggedOut"]) {
+        TGDispatchOnMainThread(^{
+            [_progressWindow dismiss:true];
+            _progressWindow = nil;
+        });
+    } else if ([path isEqualToString:@"/tg/service/synchronizationstate"])
     {
         [self actorCompleted:ASStatusSuccess path:path result:resource];
     }
@@ -607,6 +724,11 @@
                 break;
             }
         }
+    } else if ([path isEqualToString:@"/tg/calls/enabled"]) {
+        bool enabled = [((SGraphObjectNode *)resource).object boolValue];
+        TGDispatchOnMainThread(^{
+            [self updatePhoneCallsEnabled:enabled];
+        });
     }
 }
 
@@ -656,7 +778,7 @@
     }
     else if ([path hasPrefix:[[NSString alloc] initWithFormat:@"/tg/timeline/(%" PRId32 ")/uploadPhoto", _uid]] || [path hasPrefix:[[NSString alloc] initWithFormat:@"/tg/timeline/(%" PRId32 ")/deleteAvatar/", _uid]])
     {
-        TGUser *user = [TGDatabaseInstance() loadUser:_uid];
+        TGImageInfo *imageInfo = ((TGTimelineItem *)((SGraphObjectNode *)result).object).imageInfo;
         
         TGDispatchOnMainThread(^
         {
@@ -664,9 +786,12 @@
             
             if (status == ASStatusSuccess)
             {
-                [_profileDataItem copyUpdatingAvatarToCacheWithUri:user.photoUrlSmall];
-                [_profileDataItem setUpdatingAvatar:nil hasUpdatingAvatar:false];
-                [_profileDataItem setUser:user animated:false];
+                NSString *photoUrl = [imageInfo closestImageUrlWithSize:CGSizeMake(160, 160) resultingSize:NULL];
+                
+                if (photoUrl != nil)
+                    [_profileDataItem copyUpdatingAvatarToCacheWithUri:photoUrl];
+                
+                [_profileDataItem resetUpdatingAvatar:photoUrl];
             }
             else
             {
@@ -687,7 +812,7 @@
             
             if (user != nil)
             {
-                [[TGInterfaceManager instance] navigateToConversationWithId:user.uid conversation:nil performActions:nil atMessage:nil clearStack:true openKeyboard:true animated:true];
+                [[TGInterfaceManager instance] navigateToConversationWithId:user.uid conversation:nil performActions:nil atMessage:nil clearStack:true openKeyboard:false canOpenKeyboardWhileInTransition:false animated:true];
             }
         });
     }
@@ -892,13 +1017,39 @@
     _privacySettingsItem.title = TGLocalized(@"Settings.PrivacySettings");
     _chatSettingsItem.title = TGLocalized(@"Settings.ChatSettings");
     
+    _stickerSettingsItem.title = TGLocalized(@"ChatSettings.Stickers");
+    
     _setProfilePhotoItem.title = TGLocalized(@"Settings.SetProfilePhoto");
     _wallpapersItem.title = TGLocalized(@"Settings.ChatBackground");
     _usernameItem.title = TGLocalized(@"Settings.Username");
+    _aboutItem.title = TGLocalized(@"Settings.About");
     _phoneNumberItem.title = TGLocalized(@"Settings.PhoneNumber");
     _supportItem.title = TGLocalized(@"Settings.Support");
+    _callSettingsItem.title = TGLocalized(@"CallSettings.RecentCalls");
+    
+    _faqItem.title = TGLocalized(@"Settings.FAQ");
+    
+    _languageItem.title = TGLocalized(@"Settings.AppLanguage");
+    _languageItem.variant = TGLocalized(@"Localization.LanguageName");
     
     [_profileDataItem localizationUpdated];
+}
+
+- (void)aboutPressed {
+    TGUserAboutSetupController *controller = [[TGUserAboutSetupController alloc] init];
+    TGNavigationController *navigationController = [TGNavigationController navigationControllerWithControllers:@[controller]];
+    if ([[UIDevice currentDevice] userInterfaceIdiom] == UIUserInterfaceIdiomPhone)
+        navigationController.restrictLandscape = true;
+    else
+    {
+        navigationController.presentationStyle = TGNavigationControllerPresentationStyleInFormSheet;
+        navigationController.modalPresentationStyle = UIModalPresentationFormSheet;
+    }
+    [self presentViewController:navigationController animated:true completion:nil];
+}
+    
+- (void)languagePressed {
+    [self.navigationController pushViewController:[[TGLocalizationSelectionController alloc] init] animated:true];
 }
 
 @end

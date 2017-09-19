@@ -10,10 +10,21 @@
 
 #import "ASWatcher.h"
 
+@interface TGMenuButtonView : UIButton
+@end
+
 @interface TGMenuView : UIView
 
-- (void)setUserInfo:(NSDictionary *)userInfo;
+@property (nonatomic, assign) bool buttonHighlightDisabled;
+
+@property (nonatomic, strong) NSDictionary *userInfo;
+@property (nonatomic, assign) bool multiline;
+@property (nonatomic, assign) bool forceArrowOnTop;
+@property (nonatomic, assign) CGFloat maxWidth;
+
 - (void)setButtonsAndActions:(NSArray *)buttonsAndActions watcherHandle:(ASHandle *)watcherHandle;
+
+- (void)sizeToFitToWidth:(CGFloat)maxWidth;
 
 @end
 

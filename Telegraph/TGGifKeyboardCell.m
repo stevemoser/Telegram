@@ -15,7 +15,7 @@
 
 @interface TGGifKeyboardCellContents () <ASWatcher> {
     TGImageView *_imageView;
-    TGVTAcceleratedVideoView *_videoView;
+    UIView<TGInlineVideoPlayerView> *_videoView;
     SMetaDisposable *_converterDisposable;
     
     TGMessageImageViewOverlayView *_overlayView;
@@ -175,7 +175,7 @@
     [_converterDisposable setDisposable:nil];
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^
     {
-        NSString *filePath = [[TGPreparedLocalDocumentMessage localDocumentDirectoryForDocumentId:_document.documentId] stringByAppendingPathComponent:[TGDocumentMediaAttachment safeFileNameForFileName:_document.fileName]];
+        NSString *filePath = [[TGPreparedLocalDocumentMessage localDocumentDirectoryForDocumentId:_document.documentId version:_document.version] stringByAppendingPathComponent:[TGDocumentMediaAttachment safeFileNameForFileName:_document.fileName]];
         
         bool exists = [[NSFileManager defaultManager] fileExistsAtPath:filePath];
         
@@ -187,7 +187,7 @@
                 if (exists) {
                     if ([document.mimeType isEqualToString:@"video/mp4"]) {
                         [strongSelf->_videoView removeFromSuperview];
-                        strongSelf->_videoView = [[TGVTAcceleratedVideoView alloc] initWithFrame:strongSelf.bounds];
+                        strongSelf->_videoView = [[[TGVTAcceleratedVideoView videoViewClass] alloc] initWithFrame:strongSelf.bounds];
                         [strongSelf addSubview:strongSelf->_videoView];
                         [strongSelf->_videoView setPath:filePath];
                     } else if ([document.mimeType isEqualToString:@"image/gif"]) {
@@ -233,7 +233,7 @@
                             __strong TGGifKeyboardCellContents *strongSelf = weakSelf;
                             if (strongSelf != nil && [strongSelf->_document isEqual:document]) {
                                 [strongSelf->_videoView removeFromSuperview];
-                                strongSelf->_videoView = [[TGVTAcceleratedVideoView alloc] initWithFrame:strongSelf.bounds];
+                                strongSelf->_videoView = [[[TGVTAcceleratedVideoView videoViewClass] alloc] initWithFrame:strongSelf.bounds];
                                 [strongSelf addSubview:strongSelf->_videoView];
                                 [strongSelf->_videoView setPath:path];
                             }
@@ -292,7 +292,7 @@
 @end
 
 @interface TGGifKeyboardCell () {
-    TGGifKeyboardCellContents *_contents;
+    bool _highlighted;
 }
 
 @end
@@ -351,6 +351,25 @@
 - (void)setEnableAnimation:(bool)enableAnimation {
     _enableAnimation = enableAnimation;
     _contents.enableAnimation = enableAnimation;
+}
+
+- (void)setHighlighted:(bool)highlighted animated:(bool)__unused animated
+{
+    if (_highlighted != highlighted)
+    {
+        _highlighted = highlighted;
+        
+        if (iosMajorVersion() >= 8)
+        {
+            [UIView animateWithDuration:0.6 delay:0.0 usingSpringWithDamping:0.6f initialSpringVelocity:0.0f options:UIViewAnimationOptionBeginFromCurrentState animations:^
+             {
+                 if (_highlighted)
+                     _contents.transform = CGAffineTransformMakeScale(0.8f, 0.8f);
+                 else
+                     _contents.transform = CGAffineTransformIdentity;
+             } completion:nil];
+        }
+    }
 }
 
 @end

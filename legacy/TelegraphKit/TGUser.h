@@ -107,6 +107,12 @@ typedef enum {
 
 @property (nonatomic) bool minimalRepresentation;
 
+@property (nonatomic, strong) NSString *about;
+
+@property (nonatomic) bool botInlineGeo;
+
+@property (nonatomic, readonly) bool isBot;
+
 - (id)copyWithZone:(NSZone *)zone;
 
 - (bool)hasAnyName;

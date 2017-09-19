@@ -55,8 +55,14 @@ typedef enum {
     
     [super bindViewToContainer:container viewStorage:viewStorage];
     
+    [((TGSignalImageView *)self.boundView) setInlineVideoInsets:_inlineVideoInsets];
+    [((TGSignalImageView *)self.boundView) setInlineVideoSize:_inlineVideoSize];
+    [((TGSignalImageView *)self.boundView) setInlineVideoCornerRadius:_inlineVideoCornerRadius];
+    
     if (_manualProgress) {
         if ([[self boundView] isKindOfClass:[TGSignalImageViewWithProgress class]]) {
+            ((TGSignalImageViewWithProgress *)self.boundView).manualProgress = _manualProgress;
+            
             switch (_overlay) {
                 case TGSignalImageViewModelOverlayProgress:
                     ((TGSignalImageViewWithProgress *)self.boundView).progress = _progress;
@@ -129,6 +135,19 @@ typedef enum {
 
 - (void)setVideoPathSignal:(SSignal *)videoPathSignal {
     [((TGSignalImageView *)self.boundView) setVideoPathSignal:videoPathSignal];
+}
+
+- (void)setInlineVideoInsets:(UIEdgeInsets)inlineVideoInsets {
+    if (!UIEdgeInsetsEqualToEdgeInsets(_inlineVideoInsets, inlineVideoInsets)) {
+        _inlineVideoInsets = inlineVideoInsets;
+        
+        [((TGSignalImageView *)self.boundView) setInlineVideoInsets:_inlineVideoInsets];
+    }
+}
+
+- (void)setInlineVideoCornerRadius:(CGFloat)inlineVideoCornerRadius {
+    _inlineVideoCornerRadius = inlineVideoCornerRadius;
+    [((TGSignalImageView *)self.boundView) setInlineVideoCornerRadius:_inlineVideoCornerRadius];
 }
 
 @end

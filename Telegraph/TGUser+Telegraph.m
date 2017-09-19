@@ -130,7 +130,7 @@ int extractUserLinkFromUpdate(TLUpdate$updateContactLink *linkUpdate)
 
 - (id)initWithTelegraphUserDesc:(TLUser *)user
 {
-    self = [super init];
+    self = [self init];
     if (self != nil)
     {
         int32_t uid = 0;
@@ -162,6 +162,7 @@ int extractUserLinkFromUpdate(TLUpdate$updateContactLink *linkUpdate)
             self.contextBotPlaceholder = concreteUser.inlineBotPlaceholder;
             self.isContextBot = concreteUser.flags & (1 << 19);
             self.minimalRepresentation = concreteUser.flags & (1 << 20);
+            self.botInlineGeo = concreteUser.flags & (1 << 21);
         }
         else if ([user isKindOfClass:[TLUser$userEmpty class]])
         {

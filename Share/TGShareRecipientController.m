@@ -1,13 +1,17 @@
 #import "TGShareRecipientController.h"
 #import "TGShareController.h"
 
+#import <LegacyDatabase/LegacyDatabase.h>
+
 #import "TGChatListSignal.h"
 #import "TGSearchSignals.h"
 #import "TGShareRecentPeersSignals.h"
 
 #import "TGShareChatListCell.h"
+#import "TGShareTopPeersCell.h"
 #import "TGShareToolbarView.h"
 #import "TGShareButton.h"
+#import "TGShareSearchBar.h"
 
 #import "TGChatModel.h"
 #import "TGPrivateChatModel.h"
@@ -15,18 +19,23 @@
 #import "TGChannelChatModel.h"
 #import "TGUserModel.h"
 
+#import "TGShareCaptionPanel.h"
+
 #import "TGColor.h"
 
 #import <objc/runtime.h>
 
-const CGFloat TGShareBottomInset = 44.0f - 0.5f;
+const CGFloat TGShareBottomInset = 0.0f;
 
-@interface TGShareRecipientController () <UITableViewDataSource, UITableViewDelegate, UISearchBarDelegate>
+@interface TGShareRecipientController () <UITableViewDataSource, UITableViewDelegate, UISearchBarDelegate, TGShareCaptionPanelDelegate>
 {
     TGShareContext *_shareContext;
     
+    NSArray *_currentPeers;
+    NSArray *_foundPeers;
+    
     NSArray *_chatModels;
-    NSArray *_userModels;
+    NSDictionary *_userModels;
     
     NSArray *_searchSections;
     
@@ -37,20 +46,28 @@ const CGFloat TGShareBottomInset = 44.0f - 0.5f;
     
     UIView *_fadeView;
     
-    UISearchBar *_searchBar;
+    TGShareSearchBar *_searchBar;
     UIView *_searchDimView;
+    TGShareCaptionPanel *_captionPanel;
     
     SMetaDisposable *_chatListDisposable;
     SMetaDisposable *_searchDisposable;
     SMetaDisposable *_recentItemsDisposable;
     
     bool _showRecents;
+    NSArray *_topModels;
     NSArray *_recentModels;
     
     bool _selecting;
     NSMutableArray *_recipients;
     
+    bool _searching;
+    
     CGFloat _bottomInset;
+    CGFloat _keyboardHeight;
+    CGFloat _contentAreaHeight;
+    
+    bool _appeared;
 }
 @end
 
@@ -62,9 +79,14 @@ const CGFloat TGShareBottomInset = 44.0f - 0.5f;
     if (self != nil)
     {
         self.title = NSLocalizedString(@"Share.Title", nil);
-        self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:NSLocalizedString(@"Share.Select", nil) style:UIBarButtonItemStylePlain target:self action:@selector(selectPressed)];
+        self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:NSLocalizedString(@"Share.Cancel", nil) style:UIBarButtonItemStylePlain target:self action:@selector(cancelPressed)];
+        
+        self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:NSLocalizedString(@"Share.Send", nil) style:UIBarButtonItemStyleDone target:self action:@selector(donePressed)];
+        
+        self.navigationItem.rightBarButtonItem.enabled = false;
         
         _recipients = [[NSMutableArray alloc] init];
+        _foundPeers = [[NSMutableArray alloc] init];        
         
         _bottomInset = 44.0f - 0.5f;
         [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(viewControllerKeyboardWillChangeFrame:) name:UIKeyboardWillChangeFrameNotification object:nil];
@@ -80,31 +102,9 @@ const CGFloat TGShareBottomInset = 44.0f - 0.5f;
     [_recentItemsDisposable dispose];
 }
 
-- (void)selectPressed
+- (void)cancelPressed
 {
-    [self setSelecting:!_selecting];
-}
-
-- (UITextField *)findTextField:(UIView *)view
-{
-    if ([view isKindOfClass:[UITextField class]])
-        return (UITextField *)view;
-    
-    for (UIView *subview in view.subviews)
-    {
-        UITextField *result = [self findTextField:subview];
-        if (result != nil)
-            return result;
-    }
-    
-    return nil;
-}
-
-static CGRect UISearchBarTextField_editingRectForBounds(__unused id self, __unused SEL cmd, CGRect bounds)
-{
-    bounds.origin.x += 28.0f;
-    bounds.size.width -= 10.0f;
-    return bounds;
+    [(TGShareController *)self.navigationController dismissForCancel:true];
 }
 
 - (void)loadView
@@ -117,61 +117,15 @@ static CGRect UISearchBarTextField_editingRectForBounds(__unused id self, __unus
     _tableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     _tableView.dataSource = self;
     _tableView.delegate = self;
-    _tableView.rowHeight = 50.0f;
     _tableView.tableFooterView = [[UIView alloc] init];
     _tableView.contentInset = UIEdgeInsetsMake(0, 0, TGShareBottomInset, 0);
     _tableView.scrollIndicatorInsets = _tableView.contentInset;
     [self.view addSubview:_tableView];
     
-    _searchBar = [[UISearchBar alloc] initWithFrame:CGRectMake(0.0f, 0.0f, _tableView.frame.size.width, 44.0f)];
+    _searchBar = [[TGShareSearchBar alloc] initWithFrame:CGRectMake(0.0f, 0.0f, _tableView.frame.size.width, [TGShareSearchBar searchBarBaseHeight])];
     _searchBar.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     [_searchBar setPlaceholder:NSLocalizedString(@"Share.Search", nil)];
     _searchBar.delegate = self;
-
-    static UIImage *searchBarBackgroundImage = nil;
-    static UIImage *searchFieldBackgroundImage = nil;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^
-    {
-        {
-            CGFloat radius = 6.0f;
-            UIGraphicsBeginImageContextWithOptions(CGSizeMake(radius * 2.0f + 2.0f, 28.0f), false, 0.0f);
-            CGContextRef context = UIGraphicsGetCurrentContext();
-            CGContextSetFillColorWithColor(context, TGColorWithHex(0xededed).CGColor);
-            CGContextFillRect(context, CGRectMake(radius, 0.0f, 2.0f, 28.0f));
-            CGContextFillRect(context, CGRectMake(0.0f, radius, radius * 2.0f + 2.0f, 28.0f - radius * 2.0f));
-            CGContextFillEllipseInRect(context, CGRectMake(0.0f, 0.0f, radius * 2.0f, radius * 2.0f));
-            CGContextFillEllipseInRect(context, CGRectMake(radius * 2.0f + 2.0f - radius * 2.0f, 0.0f, radius * 2.0f, radius * 2.0f));
-            CGContextFillEllipseInRect(context, CGRectMake(0.0f, 28.0f - radius * 2.0f, radius * 2.0f, radius * 2.0f));
-            CGContextFillEllipseInRect(context, CGRectMake(radius * 2.0f + 2.0f - radius * 2.0f, 28.0f - radius * 2.0f, radius * 2.0f, radius * 2.0f));
-            searchFieldBackgroundImage = UIGraphicsGetImageFromCurrentImageContext();
-            UIGraphicsEndImageContext();
-        }
-        {
-            UIGraphicsBeginImageContextWithOptions(CGSizeMake(2.0f, 44.0f), false, 0.0f);
-            CGContextRef context = UIGraphicsGetCurrentContext();
-            CGContextSetFillColorWithColor(context, [UIColor whiteColor].CGColor);
-            CGContextFillRect(context, CGRectMake(0.0f, 0.0f, 2.0f, 44.0f));
-            searchBarBackgroundImage = UIGraphicsGetImageFromCurrentImageContext();
-            UIGraphicsEndImageContext();
-        }
-    });
-    [_searchBar setBackgroundImage:searchBarBackgroundImage forBarPosition:UIBarPositionAny barMetrics:UIBarMetricsDefault];
-    [_searchBar setSearchFieldBackgroundImage:searchFieldBackgroundImage forState:UIControlStateNormal];
-    UITextField *searchTextField = [self findTextField:_searchBar];
-    if (searchTextField != nil)
-    {
-        Class newClass = objc_allocateClassPair([searchTextField class], "UISearchBarTextFieldWithInset", 0);
-        Method method_editingRectForBounds = class_getInstanceMethod([UITextField class], @selector(editingRectForBounds:));
-        if (method_editingRectForBounds != NULL)
-        {
-            if (!class_addMethod(newClass, @selector(editingRectForBounds:), (IMP)&UISearchBarTextField_editingRectForBounds, method_getTypeEncoding(method_editingRectForBounds)))
-            {
-                NSLog(@"failed to swizzle");
-            }
-        }
-        object_setClass(searchTextField, newClass);
-    }
     
     _tableView.tableHeaderView = _searchBar;
     
@@ -215,13 +169,31 @@ static CGRect UISearchBarTextField_editingRectForBounds(__unused id self, __unus
         [self.view addSubview:_activityIndicator];
         [_activityIndicator startAnimating];
     }
+    
+    _captionPanel = [[TGShareCaptionPanel alloc] initWithFrame:CGRectMake(0.0f, 0.0f, self.view.frame.size.width, [_captionPanel heightForInputFieldHeight:0])];
+    _captionPanel.delegate = self;
+    [self.view addSubview:_captionPanel];
 }
 
-- (void)viewWillAppear:(BOOL)animated
+- (void)updateCaptionPanelWithFrame:(CGRect)frame edgeInsets:(UIEdgeInsets)edgeInsets
 {
-    [super viewWillAppear:animated];
+    _captionPanel.frame = CGRectMake(edgeInsets.left, _captionPanel.frame.origin.y, frame.size.width, _captionPanel.frame.size.height);
+    [_captionPanel adjustForOrientation:UIInterfaceOrientationPortrait keyboardHeight:_keyboardHeight duration:0.0 animationCurve:0];
+}
+
+- (void)viewWillLayoutSubviews
+{
+    [super viewWillLayoutSubviews];
     
-    [self updateToolbar];
+    _contentAreaHeight = self.view.bounds.size.height;
+    [_captionPanel setContentAreaHeight:_contentAreaHeight - _keyboardHeight];
+    [self updateCaptionPanelWithFrame:self.view.bounds edgeInsets:UIEdgeInsetsZero];
+    
+    if (!_appeared)
+    {
+        _appeared = true;
+        [self updateSelection:false];
+    }
 }
 
 - (void)willAnimateRotationToInterfaceOrientation:(UIInterfaceOrientation)toInterfaceOrientation duration:(NSTimeInterval)duration
@@ -253,8 +225,17 @@ static CGRect UISearchBarTextField_editingRectForBounds(__unused id self, __unus
 
 - (void)setChatModels:(NSArray *)chatModels userModels:(NSArray *)userModels
 {
+    _currentPeers = nil;
     _chatModels = chatModels;
-    _userModels = userModels;
+    
+    NSMutableDictionary *users = [[NSMutableDictionary alloc] init];
+    for (TGUserModel *user in userModels)
+    {
+        if ([user isKindOfClass:[TGUserModel class]])
+            users[@(user.userId)] = user;
+    }
+    
+    _userModels = users;
     
     [_tableView reloadData];
     
@@ -296,7 +277,9 @@ static CGRect UISearchBarTextField_editingRectForBounds(__unused id self, __unus
     else if (tableView == _searchResultsTableView)
     {
         if (_showRecents)
-            return 1;
+        {
+            return (_topModels.count > 0) + (_recentModels.count > 0);
+        }
         else
             return _searchSections.count;
     }
@@ -307,165 +290,295 @@ static CGRect UISearchBarTextField_editingRectForBounds(__unused id self, __unus
 {
     if (tableView == _tableView)
     {
-        return _chatModels.count;
+        return [self currentPeers].count;
     }
     else if (tableView == _searchResultsTableView)
     {
-        if (_showRecents)
-            return _recentModels.count;
+        if (_showRecents) {
+            if (_topModels.count > 0 && section == 0)
+                return 1;
+            else
+                return _recentModels.count;
+        }
         else
             return [(NSArray *)(_searchSections[section][@"chats"]) count];
     }
     return 0;
 }
 
+- (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath
+{
+    if (tableView == _searchResultsTableView && _showRecents && _topModels.count > 0 && indexPath.section == 0)
+        return 92.0f + 28.0f;
+    
+    return 50.0f;
+}
+
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath
 {
-    TGShareChatListCell *cell = (TGShareChatListCell *)[tableView dequeueReusableCellWithIdentifier:@"TGShareChatListCell"];
-    if (cell == nil)
-        cell = [[TGShareChatListCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"TGShareChatListCell"];
-    
-    TGChatModel *chatModel = nil;
-    NSArray *users = nil;
-    if (tableView == _tableView)
+    if (tableView == _searchResultsTableView && _showRecents && _topModels.count > 0 && indexPath.section == 0)
     {
-        chatModel = _chatModels[indexPath.row];
-        users = _userModels;
+        TGShareTopPeersCell *cell = (TGShareTopPeersCell *)[tableView dequeueReusableCellWithIdentifier:@"TGShareTopPeersCell"];
+        if (cell == nil)
+            cell = [[TGShareTopPeersCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"TGShareTopPeersCell"];
+        
+        [cell setPeers:_topModels shareContext:_shareContext];
+        
+        __weak TGShareRecipientController *weakSelf = self;
+        cell.isChecked = ^bool(int64_t peerId) {
+            __strong TGShareRecipientController *strongSelf = weakSelf;
+            if (strongSelf == nil)
+                return false;
+            
+            for (TGChatModel *model in strongSelf->_recipients)
+            {
+                if (model.peerId.namespaceId == TGPeerIdPrivate && model.peerId.peerId == peerId)
+                    return true;
+            }
+            
+            return false;
+        };
+        cell.checked = ^(int64_t peerId) {
+            __strong TGShareRecipientController *strongSelf = weakSelf;
+            if (strongSelf == nil)
+                return;
+            
+            bool selected = false;
+            TGPrivateChatModel *chatModel = nil;
+            for (TGUserModel *model in strongSelf->_topModels)
+            {
+                if (model.userId == peerId)
+                {
+                    chatModel = [model chatModel];
+                    bool exists = [strongSelf->_recipients containsObject:chatModel];
+                    if (exists)
+                    {
+                        [strongSelf->_recipients removeObject:chatModel];
+                    }
+                    else
+                    {
+                        [strongSelf->_recipients addObject:chatModel];
+                        
+                        
+                        if (strongSelf->_userModels[@(peerId)] == nil)
+                        {
+                            NSMutableDictionary *updatedUserModels = [_userModels mutableCopy];
+                            updatedUserModels[@(model.userId)] = model;
+                            strongSelf->_userModels = updatedUserModels;
+                            break;
+                        }
+                    }
+                    selected = !exists;
+                    
+                    break;
+                }
+            }
+            
+            if (selected)
+                [strongSelf addFoundPeer:chatModel];
+            strongSelf->_currentPeers = nil;
+            
+            [strongSelf searchBarCancelButtonClicked:(UISearchBar *)strongSelf->_searchBar];
+            [strongSelf->_tableView reloadData];
+            
+            [strongSelf updateSelection:true];
+        };
+        
+        cell.layoutMargins = UIEdgeInsetsZero;
+        
+        return cell;
     }
-    else if (tableView == _searchResultsTableView)
+    else
     {
-        if (_showRecents)
+        TGShareChatListCell *cell = (TGShareChatListCell *)[tableView dequeueReusableCellWithIdentifier:@"TGShareChatListCell"];
+        if (cell == nil)
+            cell = [[TGShareChatListCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"TGShareChatListCell"];
+        
+        TGChatModel *chatModel = nil;
+        NSDictionary *users = nil;
+        if (tableView == _tableView)
         {
-            chatModel = _recentModels[indexPath.row];
+            chatModel = [self currentPeers][indexPath.row];
             users = _userModels;
         }
-        else
+        else if (tableView == _searchResultsTableView)
         {
-            chatModel = _searchSections[indexPath.section][@"chats"][indexPath.row];
-            users = _searchSections[indexPath.section][@"users"];
+            if (_showRecents)
+            {
+                chatModel = _recentModels[indexPath.row];
+                users = _userModels;
+            }
+            else
+            {
+                chatModel = _searchSections[indexPath.section][@"chats"][indexPath.row];
+                users = _searchSections[indexPath.section][@"users"];
+            }
         }
+        
+        [cell setChatModel:chatModel associatedUsers:users shareContext:_shareContext];
+        [cell setChecked:[_recipients containsObject:chatModel] animated:false];
+        
+        return cell;
+    }
+}
+
+- (BOOL)tableView:(UITableView *)tableView shouldHighlightRowAtIndexPath:(NSIndexPath *)indexPath
+{
+    if (tableView == _searchResultsTableView && _showRecents && _topModels.count > 0 && indexPath.section == 0)
+    {
+        return false;
     }
     
-    [cell setChatModel:chatModel associatedUsers:users shareContext:_shareContext];
-    
-    bool selecting = _selecting && tableView != _searchResultsTableView;
-    [cell setSelectionEnabled:selecting animated:false];
-    
-    if (selecting)
-        [cell setChecked:[_recipients containsObject:chatModel] animated:false];
-    
-    return cell;
+    return true;
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath
 {
     [tableView deselectRowAtIndexPath:indexPath animated:!_selecting];
     
+    bool fromSearch = false;
     TGChatModel *chatModel = nil;
     if (tableView == _tableView)
     {
-        chatModel = _chatModels[indexPath.row];
+        chatModel = [self currentPeers][indexPath.row];
     }
     else if (tableView == _searchResultsTableView)
     {
         if (_showRecents)
+        {
             chatModel = _recentModels[indexPath.row];
+        }
         else
+        {
             chatModel = _searchSections[indexPath.section][@"chats"][indexPath.row];
+
+            if (_userModels[@(chatModel.peerId.peerId)] == nil)
+            {
+                for (TGUserModel *user in _searchSections[indexPath.section][@"users"])
+                {
+                    if (user.userId == chatModel.peerId.peerId)
+                    {
+                        NSMutableDictionary *updatedUserModels = [_userModels mutableCopy];
+                        updatedUserModels[@(user.userId)] = user;
+                        _userModels = updatedUserModels;
+                        break;
+                    }
+                }
+            }
+        }
+        
+        fromSearch = true;
     }
     
     if (chatModel == nil)
         return;
     
-    bool selecting = _selecting && tableView != _searchResultsTableView;
-    if (selecting)
+    bool exists = [_recipients containsObject:chatModel];
+    if (exists)
+        [_recipients removeObject:chatModel];
+    else
+        [_recipients addObject:chatModel];
+    
+    [self updateSelection:true];
+    
+    if (fromSearch)
     {
-        bool selected = [_recipients containsObject:chatModel];
+        if (!exists)
+            [self addFoundPeer:chatModel];
         
-        if (selected)
-            [_recipients removeObject:chatModel];
-        else
-            [_recipients addObject:chatModel];
-        
-        TGShareChatListCell *cell = (TGShareChatListCell *)[tableView cellForRowAtIndexPath:indexPath];
-        [cell setChecked:!selected animated:true];
-        
-        [self updateToolbar];
+        _currentPeers = nil;
+        [self searchBarCancelButtonClicked:(UISearchBar *)_searchBar];
+        [_tableView reloadData];
+        return;
     }
     else
     {
-        [_recipients removeAllObjects];
-        [_recipients addObject:chatModel];
-        
-        [self proceed];
+        [_searchResultsTableView reloadData];
     }
+    
+    TGShareChatListCell *cell = (TGShareChatListCell *)[tableView cellForRowAtIndexPath:indexPath];
+    [cell setChecked:!exists animated:true];
 }
 
-- (void)proceed
+- (NSArray *)currentPeers
 {
-    NSString *format = @"";
-    NSString *title = @"";
-    
-    if (_recipients.count == 1)
+    if (_currentPeers == nil)
     {
-        TGChatModel *selectedModel = _recipients.firstObject;
-        if ([selectedModel isKindOfClass:[TGPrivateChatModel class]])
+        NSArray *filteredPeers = _chatModels;
+        if (_foundPeers.count > 0)
         {
-            format = NSLocalizedString(@"Share.ShareWithPerson", nil);
-            for (id model in _userModels)
+            NSMutableArray *peers = [[NSMutableArray alloc] init];
+            NSMutableArray *foundPeers = [_foundPeers mutableCopy];
+            
+            for (TGChatModel *peer in _chatModels)
             {
-                if ([model isKindOfClass:[TGUserModel class]] && ((TGUserModel *)model).userId == selectedModel.peerId.peerId)
+                TGPeerId peerId = peer.peerId;
+            
+                bool found = false;
+                for (TGChatModel *foundPeer in foundPeers)
                 {
-                    title = ((TGUserModel *)model).displayName;
-                    break;
+                    TGPeerId foundPeerId = foundPeer.peerId;
+                    if (peerId.namespaceId == foundPeerId.namespaceId && peerId.peerId == foundPeerId.peerId)
+                    {
+                        found = true;
+                        [foundPeers removeObject:foundPeer];
+                        break;
+                    }
                 }
+                
+                if (!found)
+                    [peers addObject:peer];
             }
+            
+            filteredPeers = peers;
         }
-        else if ([selectedModel isKindOfClass:[TGGroupChatModel class]])
-        {
-            format = NSLocalizedString(@"Share.ShareWithGroup", nil);
-            title = ((TGGroupChatModel *)selectedModel).title;
-        }
-        else if ([selectedModel isKindOfClass:[TGChannelChatModel class]])
-        {
-            format = NSLocalizedString(@"Share.ShareWithGroup", nil);
-            title = ((TGChannelChatModel *)selectedModel).title;
-        }
+        
+        _currentPeers = [_foundPeers arrayByAddingObjectsFromArray:filteredPeers];
     }
-    else
+    return _currentPeers;
+}
+
+- (void)addFoundPeer:(TGChatModel *)peer
+{
+    NSMutableArray *foundPeers = [[NSMutableArray alloc] init];
+    TGPeerId peerId = peer.peerId;
+    
+    for (TGChatModel *foundPeer in _foundPeers)
     {
-        format = NSLocalizedString(@"Share.ShareWithMultiple", nil);
-        title = [NSString stringWithFormat:@"%d", (int)_recipients.count];
+        TGPeerId foundPeerId = foundPeer.peerId;
+        if (peerId.namespaceId != foundPeerId.namespaceId || peerId.peerId != foundPeerId.peerId)
+            [foundPeers addObject:foundPeer];
     }
     
-    NSString *message = [[NSString alloc] initWithFormat:format, title];
+    [foundPeers insertObject:peer atIndex:0];
+    _foundPeers = foundPeers;
+}
+
+- (void)updateSelection:(bool)animated
+{
+    if (_recipients.count == 0 && _captionPanel.isFirstResponder)
+        [_captionPanel dismiss];
     
-    __weak TGShareRecipientController *weakSelf = self;
-    UIAlertController *alertController = [UIAlertController alertControllerWithTitle:nil message:message preferredStyle:UIAlertControllerStyleAlert];
-    [alertController addAction:[UIAlertAction actionWithTitle:NSLocalizedString(@"Share.Cancel", nil) style:UIAlertActionStyleCancel handler:^(__unused UIAlertAction *action)
-    {
-        
-    }]];    
-    [alertController addAction:[UIAlertAction actionWithTitle:NSLocalizedString(@"Share.OK", nil) style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action)
-    {
-        __strong TGShareRecipientController *strongSelf = weakSelf;
-        if (strongSelf == nil)
-            return;
-        
-        NSMutableArray *peerIds = [[NSMutableArray alloc] init];
-        for (TGChatModel *chatModel in strongSelf->_recipients)
-        {
-            TGPeerId peerId = chatModel.peerId;
-            [peerIds addObject:[NSValue valueWithBytes:&peerId objCType:@encode(TGPeerId)]];
-        }
-        
-        [(TGShareController *)strongSelf.navigationController sendToPeers:peerIds models:strongSelf->_userModels];
-    }]];
-    [self presentViewController:alertController animated:true completion:nil];
+    [_captionPanel setCollapsed:_recipients.count == 0 animated:animated];
+    
+    self.navigationItem.rightBarButtonItem.enabled = _recipients.count > 0;
+
+    [self updateTableInset];
+}
+
+- (void)updateTableInset
+{
+    _tableView.contentInset = UIEdgeInsetsMake(_tableView.contentInset.top, 0.0f, _recipients.count > 0 ? _captionPanel.frame.size.height : 0.0f, 0.0f);
+    _tableView.scrollIndicatorInsets = _tableView.contentInset;
 }
 
 - (void)setSearching:(bool)searching
 {
+    if (_searching == searching)
+        return;
+    
+    _searching = searching;
+    
     if (searching)
     {
         _searchResultsTableView.hidden = false;
@@ -473,7 +586,7 @@ static CGRect UISearchBarTextField_editingRectForBounds(__unused id self, __unus
         _searchResultsTableView.frame = CGRectMake(0.0f, 64.0f + 44.0f, _searchDimView.frame.size.width, _searchDimView.frame.size.height - 64.0f);
         [UIView animateWithDuration:0.25 animations:^
         {
-            [self.navigationController setNavigationBarHidden:true animated:false];
+            [self.navigationController setNavigationBarHidden:true animated:true];
             [_tableView setScrollEnabled:false];
             [_tableView setContentOffset:CGPointMake(0.0f, -20.0f) animated:false];
             _searchResultsTableView.frame = CGRectMake(0.0f, 64.0f, _searchDimView.frame.size.width, _searchDimView.frame.size.height - 64.0f);
@@ -497,53 +610,17 @@ static CGRect UISearchBarTextField_editingRectForBounds(__unused id self, __unus
             [_searchDisposable setDisposable:nil];
         }];
     }
-}
-
-- (void)setSelecting:(bool)selecting
-{
-    if (_selecting == selecting)
-        return;
     
-    [_recipients removeAllObjects];
-    
-    _selecting = selecting;
-    
-    if (selecting)
-    {
-        [self.navigationItem setRightBarButtonItem:nil animated:true];
-    }
+    if (searching)
+        [_captionPanel setCollapsed:true animated:true];
     else
-    {
-        [self.navigationItem setRightBarButtonItem:[[UIBarButtonItem alloc] initWithTitle:NSLocalizedString(@"Share.Select", nil) style:UIBarButtonItemStylePlain target:self action:@selector(selectPressed)] animated:true];
-    }
-    
-    for (TGShareChatListCell *cell in _tableView.visibleCells)
-        [cell setSelectionEnabled:selecting animated:true];
-    
-    [self updateToolbar];
-}
-
-- (void)updateToolbar
-{
-    TGShareToolbarView *toolbarView = ((TGShareController *)self.navigationController).toolbarView;
-    
-    if (_selecting)
-    {
-        toolbarView.rightButtonTitle = NSLocalizedString(@"Share.Done", nil);
-        [toolbarView setRightButtonEnabled:(_recipients.count > 0) animated:true];
-    }
-    else
-    {
-        toolbarView.rightButtonTitle = nil;
-    }
-    
-    [toolbarView setToolbarTabs:TGShareToolbarTabNone animated:true];
+        [self updateSelection:true];
 }
     
 - (void)searchDimViewTapped:(UITapGestureRecognizer *)recognizer
 {
     if (recognizer.state == UIGestureRecognizerStateEnded)
-        [self searchBarCancelButtonClicked:_searchBar];
+        [self searchBarCancelButtonClicked:(UISearchBar *)_searchBar];
 }
 
 - (void)searchBarTextDidBeginEditing:(UISearchBar *)searchBar
@@ -555,18 +632,19 @@ static CGRect UISearchBarTextField_editingRectForBounds(__unused id self, __unus
         _recentItemsDisposable = [[SMetaDisposable alloc] init];
     
     __weak TGShareRecipientController *weakSelf = self;
-    [_recentItemsDisposable setDisposable:[[TGShareRecentPeersSignals recentPeerResultsWithChats:_chatModels] startWithNext:^(id next)
+    [_recentItemsDisposable setDisposable:[[TGShareRecentPeersSignals recentPeerResultsWithContext:_shareContext cachedChats:_chatModels] startWithNext:^(NSDictionary *next)
     {
         __strong TGShareRecipientController *strongSelf = weakSelf;
         if (strongSelf == nil)
             return;
         
-        strongSelf->_recentModels = next;
+        strongSelf->_topModels = next[@"top"];
+        strongSelf->_recentModels = next[@"recent"];
         [strongSelf updateRecents];
     }]];
 }
 
-- (void)searchBarCancelButtonClicked:(UISearchBar *)searchBar
+- (void)searchBarCancelButtonClicked:(TGShareSearchBar *)searchBar
 {
     [searchBar setText:@""];
     [searchBar endEditing:true];
@@ -589,7 +667,7 @@ static CGRect UISearchBarTextField_editingRectForBounds(__unused id self, __unus
         
         __weak TGShareRecipientController *weakSelf = self;
         
-        SSignal *searchChatsSignal = [TGSearchSignals searchChatsWithContext:_shareContext chats:_chatModels users:_userModels query:text];
+        SSignal *searchChatsSignal = [TGSearchSignals searchChatsWithContext:_shareContext chats:_chatModels users:[_userModels allValues] query:text];
         SSignal *searchRemoteSignal = [[[SSignal complete] delay:0.1 onQueue:[SQueue concurrentDefaultQueue]] then:[TGSearchSignals searchUsersWithContext:_shareContext query:text]];
         SSignal *searchSignal = [SSignal combineSignals:@[searchRemoteSignal, searchChatsSignal] withInitialStates:@[@{@"chats": @[], @"users": @[]}]];
         
@@ -624,15 +702,15 @@ static CGRect UISearchBarTextField_editingRectForBounds(__unused id self, __unus
 
 - (void)scrollViewWillBeginDragging:(UIScrollView *)scrollView
 {
-    if (scrollView == _searchResultsTableView && !_showRecents)
-    {
+    if (scrollView == _searchResultsTableView)
         [self.view endEditing:true];
-    }
+    else if (scrollView == _tableView && _captionPanel.isFirstResponder)
+        [_captionPanel dismiss];
 }
 
-- (CGFloat)tableView:(UITableView *)__unused tableView heightForHeaderInSection:(NSInteger)__unused section
+- (CGFloat)tableView:(UITableView *)__unused tableView heightForHeaderInSection:(NSInteger)section
 {
-    if (tableView == _searchResultsTableView && _showRecents && _recentModels.count > 0)
+    if (tableView == _searchResultsTableView && _showRecents && _recentModels.count > 0 && (section == 1 || (_topModels.count == 0 && section == 0)))
         return 28.0f;
     
     return 0.0f;
@@ -643,7 +721,14 @@ static CGRect UISearchBarTextField_editingRectForBounds(__unused id self, __unus
     if (tableView == _tableView)
         return nil;
     
+    bool isRecents = true;
     if (!_showRecents || _recentModels.count == 0)
+        return nil;
+    
+    if (section == 0 && _topModels.count > 0)
+        isRecents = false;
+    
+    if (!isRecents)
         return nil;
     
     UIView *sectionContainer = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 10, 10)];
@@ -658,33 +743,32 @@ static CGRect UISearchBarTextField_editingRectForBounds(__unused id self, __unus
     sectionView.backgroundColor = TGColorWithHex(0xf7f7f7);
     [sectionContainer addSubview:sectionView];
     
-    CGFloat separatorHeight = 0.5f;
-    UIView *separatorView = [[UIView alloc] initWithFrame:CGRectMake(0.0f, 0.0f, 10, separatorHeight)];
-    separatorView.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-    separatorView.backgroundColor = TGSeparatorColor();
-    [sectionContainer addSubview:separatorView];
-    
     UILabel *sectionLabel = [[UILabel alloc] init];
     sectionLabel.tag = 100;
     sectionLabel.backgroundColor = sectionView.backgroundColor;
     sectionLabel.numberOfLines = 1;
-    sectionLabel.font = [UIFont systemFontOfSize:14.5f weight:UIFontWeightMedium];
-    sectionLabel.text = NSLocalizedString(@"Share.RecentSection", nil);
+    sectionLabel.font = [UIFont systemFontOfSize:12.0f weight:UIFontWeightSemibold];
+    
+    NSString *title = isRecents ? NSLocalizedString(@"Share.RecentSection", nil) : NSLocalizedString(@"Share.PeopleSection", nil);
+    sectionLabel.text = [title uppercaseString];
     sectionLabel.textColor = TGColorWithHex(0x8e8e93);
     [sectionLabel sizeToFit];
-    sectionLabel.frame = CGRectMake(8.0f, 4.5f, sectionLabel.frame.size.width, sectionLabel.frame.size.height);
+    sectionLabel.frame = CGRectMake(14.0f, 6.0f, sectionLabel.frame.size.width, sectionLabel.frame.size.height);
     [sectionContainer addSubview:sectionLabel];
     
-    TGShareButton *clearButton = [[TGShareButton alloc] init];
-    [clearButton setTitle:NSLocalizedString(@"Share.RecentSectionClear", nil) forState:UIControlStateNormal];
-    [clearButton setTitleColor:TGColorWithHex(0x8e8e93)];
-    clearButton.titleLabel.font = [UIFont systemFontOfSize:14];
-    [clearButton setContentEdgeInsets:UIEdgeInsetsMake(0.0f, 8.0f, 0.0f, 8.0f)];
-    [clearButton addTarget:self action:@selector(clearButtonPressed) forControlEvents:UIControlEventTouchUpInside];
-    [clearButton sizeToFit];
-    clearButton.frame = CGRectMake(sectionContainer.frame.size.width - clearButton.frame.size.width, 0.0f, clearButton.frame.size.width, 28.0f);
-    clearButton.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
-    [sectionContainer addSubview:clearButton];
+    if (isRecents)
+    {
+        TGShareButton *clearButton = [[TGShareButton alloc] init];
+        [clearButton setTitle:NSLocalizedString(@"Share.RecentSectionClear", nil) forState:UIControlStateNormal];
+        [clearButton setTitleColor:TGColorWithHex(0x8e8e93)];
+        clearButton.titleLabel.font = [UIFont systemFontOfSize:14];
+        [clearButton setContentEdgeInsets:UIEdgeInsetsMake(0.0f, 8.0f, 0.0f, 8.0f)];
+        [clearButton addTarget:self action:@selector(clearButtonPressed) forControlEvents:UIControlEventTouchUpInside];
+        [clearButton sizeToFit];
+        clearButton.frame = CGRectMake(sectionContainer.frame.size.width - clearButton.frame.size.width, 0.0f, clearButton.frame.size.width, 28.0f);
+        clearButton.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+        [sectionContainer addSubview:clearButton];
+    }
     
     return sectionContainer;
 }
@@ -695,10 +779,26 @@ static CGRect UISearchBarTextField_editingRectForBounds(__unused id self, __unus
     _recentModels = nil;
     [_searchResultsTableView reloadData];
 }
+
+- (void)setContentAreaHeight:(CGFloat)contentAreaHeight
+{
+    _contentAreaHeight = contentAreaHeight;
+    
+    CGFloat finalHeight = _contentAreaHeight - _keyboardHeight;
+    [_captionPanel setContentAreaHeight:finalHeight];
+}
+
 - (void)viewControllerKeyboardWillChangeFrame:(NSNotification *)notification
 {
+    NSTimeInterval duration = notification.userInfo[UIKeyboardAnimationDurationUserInfoKey] == nil ? 0.3 : [notification.userInfo[UIKeyboardAnimationDurationUserInfoKey] doubleValue];
+    int curve = [notification.userInfo[UIKeyboardAnimationCurveUserInfoKey] intValue];
+    
     CGRect keyboardFrame = [[[notification userInfo] objectForKey:UIKeyboardFrameEndUserInfoKey] CGRectValue];
-    CGFloat keyboardHeight = MIN(keyboardFrame.size.height, keyboardFrame.size.width);
+    CGFloat keyboardHeight = (keyboardFrame.size.height <= FLT_EPSILON || keyboardFrame.size.width <= FLT_EPSILON) ? 0.0f : (self.view.frame.size.height - keyboardFrame.origin.y);
+    keyboardHeight = MAX(keyboardHeight, 0.0f);
+    
+    _keyboardHeight = keyboardHeight;
+
     
     _bottomInset = MAX(TGShareBottomInset, keyboardHeight + 44.0f);
     
@@ -707,6 +807,14 @@ static CGRect UISearchBarTextField_editingRectForBounds(__unused id self, __unus
         _searchResultsTableView.contentInset = UIEdgeInsetsMake(0, 0, _bottomInset, 0);
         _searchResultsTableView.scrollIndicatorInsets = _searchResultsTableView.contentInset;
     }
+    
+    keyboardHeight = MAX(keyboardHeight, 0.0f);
+    _keyboardHeight = keyboardHeight;
+    
+    [_captionPanel adjustForOrientation:UIInterfaceOrientationPortrait keyboardHeight:keyboardHeight duration:duration animationCurve:curve];
+    
+    CGFloat finalHeight = _contentAreaHeight - _keyboardHeight;
+    [_captionPanel setContentAreaHeight:finalHeight];
 }
 
 - (void)viewControllerKeyboardWillHide:(NSNotification *)notification
@@ -720,6 +828,50 @@ static CGRect UISearchBarTextField_editingRectForBounds(__unused id self, __unus
         _searchResultsTableView.contentInset = UIEdgeInsetsMake(0, 0, _bottomInset, 0);
         _searchResultsTableView.scrollIndicatorInsets = _searchResultsTableView.contentInset;
     }
+}
+
+- (bool)inputPanelShouldBecomeFirstResponder:(TGShareCaptionPanel *)inputPanel
+{
+    return true;
+}
+
+- (void)inputPanelWillChangeHeight:(TGShareCaptionPanel *)inputPanel height:(CGFloat)__unused height duration:(NSTimeInterval)duration animationCurve:(int)animationCurve
+{
+    [inputPanel adjustForOrientation:UIInterfaceOrientationPortrait keyboardHeight:_keyboardHeight duration:duration animationCurve:animationCurve];
+    
+    [self updateTableInset];
+}
+
+- (void)inputPanelRequestedSend:(TGShareCaptionPanel *)inputPanel text:(NSString *)text
+{
+    [self donePressed];
+}
+
+- (void)inputPanelFocused:(TGShareCaptionPanel *)inputPanel
+{
+    
+}
+
+- (void)donePressed
+{
+    NSMutableArray *peerIds = [[NSMutableArray alloc] init];
+    for (TGChatModel *chatModel in _recipients)
+    {
+        TGPeerId peerId = chatModel.peerId;
+        [peerIds addObject:[NSValue valueWithBytes:&peerId objCType:@encode(TGPeerId)]];
+    }
+    
+    NSMutableArray *models = [[NSMutableArray alloc] init];
+    for (id model in _currentPeers)
+    {
+        if ([model isKindOfClass:[TGChannelChatModel class]])
+        {
+            [models addObject:model];
+        }
+    }
+    [models addObjectsFromArray:[_userModels allValues]];
+    
+    [(TGShareController *)self.navigationController sendToPeers:peerIds models:models caption:_captionPanel.inputField.text];
 }
 
 @end

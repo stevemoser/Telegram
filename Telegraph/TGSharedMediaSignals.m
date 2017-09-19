@@ -14,6 +14,11 @@
 #import "TGImageUtils.h"
 #import "TGModernCache.h"
 
+#import "TGWebDocument.h"
+
+#import "TGStringUtils.h"
+#import "TGSharedMediaUtils.h"
+
 @implementation TGSharedMediaImageData
 
 - (instancetype)initWithData:(NSData *)data quality:(TGSharedMediaImageDataQuality)quality preBlurred:(bool)preBlurred
@@ -97,7 +102,22 @@
         return nil;
 }
 
-- (NSString *)keyForLocation:(TLInputFileLocation *)location
++ (TLInputWebFileLocation *)inputWebFileLocationForImageUrl:(NSString *)imageUrl datacenterId:(NSInteger *)outDatacenterId {
+    TGWebDocumentReference *reference = [[TGWebDocumentReference alloc] initWithString:imageUrl];
+    if (reference != nil) {
+        TLInputWebFileLocation$inputWebFileLocation *location = [[TLInputWebFileLocation$inputWebFileLocation alloc] init];
+        location.url = reference.url;
+        location.access_hash = reference.accessHash;
+        if (outDatacenterId) {
+            *outDatacenterId = (NSInteger)reference.datacenterId;
+        }
+        return location;
+    } else {
+        return nil;
+    }
+}
+
+- (NSString *)keyForLocation:(id)location
 {
     if ([location isKindOfClass:[TLInputFileLocation$inputDocumentFileLocation class]])
     {
@@ -111,11 +131,15 @@
     {
         return [[NSString alloc] initWithFormat:@"image-%" PRId64 "_%" PRId32, ((TLInputFileLocation$inputFileLocation *)location).volume_id, ((TLInputFileLocation$inputFileLocation *)location).local_id];
     }
+    else if ([location isKindOfClass:[TLInputWebFileLocation$inputWebFileLocation class]])
+    {
+        return [[NSString alloc] initWithFormat:@"web-%d", murMurHash32(((TLInputWebFileLocation$inputWebFileLocation *)location).url)];
+    }
     
     return nil;
 }
 
-- (SSignal *)_memoizedDataSignalForRemoteLocation:(TLInputFileLocation *)location datacenterId:(NSInteger)datacenterId reportProgress:(bool)reportProgress
+- (SSignal *)_memoizedDataSignalForRemoteLocation:(TLInputFileLocation *)location datacenterId:(NSInteger)datacenterId reportProgress:(bool)reportProgress mediaTypeTag:(TGNetworkMediaTypeTag)mediaTypeTag
 {
     NSString *key = [self keyForLocation:location];
     if (key == nil)
@@ -123,7 +147,19 @@
     
     return [_signalManager multicastedSignalForKey:key producer:^SSignal *
     {
-        return [TGRemoteFileSignal dataForLocation:location datacenterId:datacenterId size:0 reportProgress:reportProgress];
+        return [TGRemoteFileSignal dataForLocation:location datacenterId:datacenterId size:0 reportProgress:reportProgress mediaTypeTag:mediaTypeTag];
+    }];
+}
+
+- (SSignal *)_memoizedDataSignalForRemoteWebLocation:(TLInputWebFileLocation *)location datacenterId:(NSInteger)datacenterId reportProgress:(bool)reportProgress mediaTypeTag:(TGNetworkMediaTypeTag)mediaTypeTag
+{
+    NSString *key = [self keyForLocation:location];
+    if (key == nil)
+        return nil;
+    
+    return [_signalManager multicastedSignalForKey:key producer:^SSignal *
+    {
+        return [TGRemoteFileSignal dataForWebLocation:location datacenterId:datacenterId size:0 reportProgress:reportProgress mediaTypeTag:mediaTypeTag];
     }];
 }
 
@@ -139,9 +175,13 @@
     }];
 }
 
-+ (SSignal *)memoizedDataSignalForRemoteLocation:(TLInputFileLocation *)location datacenterId:(NSInteger)datacenterId reportProgress:(bool)reportProgress
++ (SSignal *)memoizedDataSignalForRemoteLocation:(TLInputFileLocation *)location datacenterId:(NSInteger)datacenterId reportProgress:(bool)reportProgress mediaTypeTag:(TGNetworkMediaTypeTag)mediaTypeTag
 {
-    return [[self instance] _memoizedDataSignalForRemoteLocation:location datacenterId:datacenterId reportProgress:reportProgress];
+    return [[self instance] _memoizedDataSignalForRemoteLocation:location datacenterId:datacenterId reportProgress:reportProgress mediaTypeTag:mediaTypeTag];
+}
+
++ (SSignal *)memoizedDataSignalForRemoteWebLocation:(TLInputWebFileLocation *)location datacenterId:(NSInteger)datacenterId reportProgress:(bool)reportProgress mediaTypeTag:(TGNetworkMediaTypeTag)mediaTypeTag {
+    return [[self instance] _memoizedDataSignalForRemoteWebLocation:location datacenterId:datacenterId reportProgress:reportProgress mediaTypeTag:mediaTypeTag];
 }
 
 + (SSignal *)memoizedDataSignalForHttpUrl:(NSString *)httpUrl
@@ -217,6 +257,7 @@
             threadPool:(SThreadPool *)threadPool
             memoryCache:(TGMemoryImageCache *)memoryCache
             placeholder:(SSignal *)__unused placeholder
+            blurLowQuality:(bool)blurLowQuality
 {
     __block bool lowQuality = false;
     __block bool alreadyBlurred = false;
@@ -238,7 +279,7 @@
                 
                 if (location != nil)
                 {
-                    return [[TGSharedMediaSignals memoizedDataSignalForRemoteLocation:location datacenterId:datacenterId reportProgress:false] mapToSignal:^SSignal *(NSData *data)
+                    return [[TGSharedMediaSignals memoizedDataSignalForRemoteLocation:location datacenterId:datacenterId reportProgress:false mediaTypeTag:TGNetworkMediaTypeTagImage] mapToSignal:^SSignal *(NSData *data)
                     {
                         lowQuality = false;
                         cacheResult = true;
@@ -300,13 +341,13 @@
         if (highQualityImageUrl != nil)
         {
             NSInteger datacenterId = 0;
-            TLInputFileLocation *location = [TGSharedMediaSignals inputFileLocationForImageUrl:highQualityImageUrl datacenterId:&datacenterId];
             
-            if (location != nil)
-            {
-                nextSignal = [nextSignal then:[[TGSharedMediaSignals memoizedDataSignalForRemoteLocation:location datacenterId:datacenterId reportProgress:false] mapToSignal:^SSignal *(NSData *data)
+            TLInputWebFileLocation *webLocation = [TGSharedMediaSignals inputWebFileLocationForImageUrl:highQualityImageUrl datacenterId:&datacenterId];
+            if (webLocation != nil) {
+                nextSignal = [nextSignal then:[[TGSharedMediaSignals memoizedDataSignalForRemoteWebLocation:webLocation datacenterId:datacenterId reportProgress:false mediaTypeTag:TGNetworkMediaTypeTagImage] mapToSignal:^SSignal *(NSData *data)
                 {
                     lowQuality = false;
+                    [[TGSharedMediaUtils sharedMediaTemporaryPersistentCache] setValue:data forKey:[highQualityImageUrl dataUsingEncoding:NSUTF8StringEncoding]];
                     //[data writeToFile:lowQualityImagePath atomically:true];
                     
                     UIImage *image = [[UIImage alloc] initWithData:data];
@@ -315,6 +356,35 @@
                     else
                         return [SSignal single:image];
                 }]];
+            } else {
+                TLInputFileLocation *location = [TGSharedMediaSignals inputFileLocationForImageUrl:highQualityImageUrl datacenterId:&datacenterId];
+                
+                if (location != nil)
+                {
+                    nextSignal = [nextSignal then:[[TGSharedMediaSignals memoizedDataSignalForRemoteLocation:location datacenterId:datacenterId reportProgress:false mediaTypeTag:TGNetworkMediaTypeTagImage] mapToSignal:^SSignal *(NSData *data)
+                    {
+                        lowQuality = false;
+                        //[data writeToFile:lowQualityImagePath atomically:true];
+                        
+                        UIImage *image = [[UIImage alloc] initWithData:data];
+                        if (image == nil)
+                            return [SSignal complete];
+                        else
+                            return [SSignal single:image];
+                    }]];
+                } else if ([highQualityImageUrl hasPrefix:@"https://"] || [highQualityImageUrl hasPrefix:@"http://"]) {
+                    nextSignal = [nextSignal then:[[TGRemoteHttpLocationSignal dataForHttpLocation:highQualityImageUrl] mapToSignal:^SSignal *(NSData *data)
+                    {
+                        lowQuality = false;
+                        //[data writeToFile:lowQualityImagePath atomically:true];
+                        
+                        UIImage *image = [[UIImage alloc] initWithData:data];
+                        if (image == nil)
+                            return [SSignal complete];
+                        else
+                            return [SSignal single:image];
+                    }]];
+                }
             }
         }
         
@@ -326,13 +396,13 @@
         if (highQualityImageUrl != nil)
         {
             NSInteger datacenterId = 0;
-            TLInputFileLocation *location = [TGSharedMediaSignals inputFileLocationForImageUrl:highQualityImageUrl datacenterId:&datacenterId];
             
-            if (location != nil)
-            {
-                nextSignal = [nextSignal then:[[TGSharedMediaSignals memoizedDataSignalForRemoteLocation:location datacenterId:datacenterId reportProgress:false] mapToSignal:^SSignal *(NSData *data)
+            TLInputWebFileLocation *webLocation = [TGSharedMediaSignals inputWebFileLocationForImageUrl:highQualityImageUrl datacenterId:&datacenterId];
+            if (webLocation != nil) {
+                nextSignal = [nextSignal then:[[TGSharedMediaSignals memoizedDataSignalForRemoteWebLocation:webLocation datacenterId:datacenterId reportProgress:false mediaTypeTag:TGNetworkMediaTypeTagImage] mapToSignal:^SSignal *(NSData *data)
                 {
                     lowQuality = false;
+                    [[TGSharedMediaUtils sharedMediaTemporaryPersistentCache] setValue:data forKey:[highQualityImageUrl dataUsingEncoding:NSUTF8StringEncoding]];
                     //[data writeToFile:lowQualityImagePath atomically:true];
                     
                     UIImage *image = [[UIImage alloc] initWithData:data];
@@ -341,6 +411,23 @@
                     else
                         return [SSignal single:image];
                 }]];
+            } else {
+                TLInputFileLocation *location = [TGSharedMediaSignals inputFileLocationForImageUrl:highQualityImageUrl datacenterId:&datacenterId];
+                
+                if (location != nil)
+                {
+                    nextSignal = [nextSignal then:[[TGSharedMediaSignals memoizedDataSignalForRemoteLocation:location datacenterId:datacenterId reportProgress:false mediaTypeTag:TGNetworkMediaTypeTagImage] mapToSignal:^SSignal *(NSData *data)
+                    {
+                        lowQuality = false;
+                        //[data writeToFile:lowQualityImagePath atomically:true];
+                        
+                        UIImage *image = [[UIImage alloc] initWithData:data];
+                        if (image == nil)
+                            return [SSignal complete];
+                        else
+                            return [SSignal single:image];
+                    }]];
+                }
             }
         }
         
@@ -349,11 +436,32 @@
     {
         NSInteger datacenterId = 0;
         TLInputFileLocation *location = [TGSharedMediaSignals inputFileLocationForImageUrl:lowQualityImageUrl datacenterId:&datacenterId];
-        if (location == nil)
+        if (location == nil) {
+            if (highQualityImageUrl != nil)
+            {
+                NSInteger datacenterId = 0;
+                
+                TLInputWebFileLocation *webLocation = [TGSharedMediaSignals inputWebFileLocationForImageUrl:highQualityImageUrl datacenterId:&datacenterId];
+                if (webLocation != nil) {
+                    return [[TGSharedMediaSignals memoizedDataSignalForRemoteWebLocation:webLocation datacenterId:datacenterId reportProgress:false mediaTypeTag:TGNetworkMediaTypeTagImage] mapToSignal:^SSignal *(NSData *data)
+                    {
+                        lowQuality = false;
+                        [[TGSharedMediaUtils sharedMediaTemporaryPersistentCache] setValue:data forKey:[highQualityImageUrl dataUsingEncoding:NSUTF8StringEncoding]];
+                        //[data writeToFile:lowQualityImagePath atomically:true];
+                        
+                        UIImage *image = [[UIImage alloc] initWithData:data];
+                        if (image == nil)
+                            return [SSignal complete];
+                        else
+                            return [SSignal single:image];
+                    }];
+                }
+            }
             return [SSignal fail:nil];
+        }
         else
         {
-            return [[TGSharedMediaSignals memoizedDataSignalForRemoteLocation:location datacenterId:datacenterId reportProgress:false] mapToSignal:^SSignal *(NSData *data)
+            return [[TGSharedMediaSignals memoizedDataSignalForRemoteLocation:location datacenterId:datacenterId reportProgress:false mediaTypeTag:TGNetworkMediaTypeTagImage] mapToSignal:^SSignal *(NSData *data)
             {
                 NSString *directoryPath = [lowQualityImagePath substringToIndex:lowQualityImagePath.length - ((NSString *)[lowQualityImagePath pathComponents].lastObject).length];
                 [[NSFileManager defaultManager] createDirectoryAtPath:directoryPath withIntermediateDirectories:true attributes:nil error:NULL];
@@ -375,7 +483,7 @@
                     
                     if (location != nil)
                     {
-                        nextSignal = [nextSignal then:[[TGSharedMediaSignals memoizedDataSignalForRemoteLocation:location datacenterId:datacenterId reportProgress:false] mapToSignal:^SSignal *(NSData *data)
+                        nextSignal = [nextSignal then:[[TGSharedMediaSignals memoizedDataSignalForRemoteLocation:location datacenterId:datacenterId reportProgress:false mediaTypeTag:TGNetworkMediaTypeTagImage] mapToSignal:^SSignal *(NSData *data)
                         {
                             lowQuality = false;
                             //[data writeToFile:lowQualityImagePath atomically:true];
@@ -397,7 +505,7 @@
         CGSize optimizedSize = size;
         if (lowQuality && pixelProcessingBlock == nil)
             optimizedSize = TGFitSize(size, CGSizeMake(25.0f, 25.0f));
-        return [[TGListThumbnailSignals signalForListThumbnail:optimizedSize image:image blurImage:lowQuality && !alreadyBlurred pixelProcessingBlock:pixelProcessingBlock calculateAverageColor:!averageColorCalculated] filter:^bool(id next)
+        return [[TGListThumbnailSignals signalForListThumbnail:optimizedSize image:image blurImage:lowQuality && !alreadyBlurred && blurLowQuality pixelProcessingBlock:pixelProcessingBlock calculateAverageColor:!averageColorCalculated] filter:^bool(id next)
         {
             if ([next isKindOfClass:[UIImage class]])
                 return true;
@@ -412,7 +520,10 @@
         {
             dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^
             {
-                [UIImageJPEGRepresentation(image, 0.8f) writeToFile:lowQuality ? cachedSizeLowPath : cachedSizePath atomically:true];
+                NSData *data = UIImageJPEGRepresentation(image, 0.8f);
+                NSString *path = lowQuality ? cachedSizeLowPath : cachedSizePath;
+                [[NSFileManager defaultManager] createDirectoryAtPath:[path substringToIndex:path.length - [path lastPathComponent].length] withIntermediateDirectories:true attributes:nil error:nil];
+                [data writeToFile:path atomically:true];
             });
         }
         [memoryCache setImage:image forKey:lowQuality ? cachedSizeLowPath : cachedSizePath attributes:nil];

@@ -5,7 +5,7 @@
 #import <libkern/OSAtomic.h>
 
 #include <vector>
-#include <tr1/unordered_map>
+#include <unordered_map>
 
 static const char *graphQueueSpecific = "com.telegraph.graphdispatchqueue";
 
@@ -70,10 +70,6 @@ ActionStage *ActionStageInstance()
         
         _liveNodeWatchers = [[NSMutableDictionary alloc] init];
         _actorMessagesWatchers = [[NSMutableDictionary alloc] init];
-        
-#ifdef INTERNAL_RELEASE
-        //[[NSRunLoop mainRunLoop] addTimer:[NSTimer timerWithTimeInterval:60.0 target:self selector:@selector(dumpGraphState) userInfo:nil repeats:true] forMode:NSRunLoopCommonModes];
-#endif
     }
     return self;
 }

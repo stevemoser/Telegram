@@ -158,6 +158,28 @@
         
         int32_t channelId = [_actionData[@"groupId"] intValue];
         [data appendBytes:&channelId length:4];
+    } else if (actionType == TGMessageActionPinnedMessage) {
+    } else if (actionType == TGMessageActionClearChat) {
+    } else if (actionType == TGMessageActionGameScore) {
+        int32_t gameId = [_actionData[@"gameId"] intValue];
+        [data appendBytes:&gameId length:4];
+        int32_t score = [_actionData[@"score"] intValue];
+        [data appendBytes:&score length:4];
+    } else if (actionType == TGMessageActionPhoneCall) {
+        int64_t callId = [_actionData[@"callId"] int64Value];
+        [data appendBytes:&callId length:8];
+        int32_t reason = [_actionData[@"reason"] intValue];
+        [data appendBytes:&reason length:4];
+        int32_t duration = [_actionData[@"duration"] intValue];
+        [data appendBytes:&duration length:4];
+    } else if (actionType == TGMessageActionPaymentSent) {
+        NSString *curreny = _actionData[@"currency"];
+        NSData *currencyBytes = [curreny dataUsingEncoding:NSUTF8StringEncoding];
+        int32_t currencyLength = (int32_t)currencyBytes.length;
+        [data appendBytes:&currencyLength length:4];
+        [data appendData:currencyBytes];
+        int32_t totalAmount = [_actionData[@"totalAmount"] intValue];
+        [data appendBytes:&totalAmount length:4];
     }
 
     int dataLength = (int)data.length - dataLengthPtr - 4;
@@ -333,6 +355,31 @@
         [is read:(uint8_t *)&groupId maxLength:4];
         
         actionAttachment.actionData = @{@"groupId": @(groupId), @"title": title};
+    } else if (actionType == TGMessageActionPinnedMessage) {
+    } else if (actionType == TGMessageActionClearChat) {
+    } else if (actionType == TGMessageActionGameScore) {
+        int gameId = 0;
+        [is read:(uint8_t *)&gameId maxLength:4];
+        int score = 0;
+        [is read:(uint8_t *)&score maxLength:4];
+        actionAttachment.actionData = @{@"gameId": @(gameId), @"score": @(score)};
+    } else if (actionType == TGMessageActionPhoneCall) {
+        int64_t callId = 0;
+        [is read:(uint8_t *)&callId maxLength:8];
+        int32_t reason = 0;
+        [is read:(uint8_t *)&reason maxLength:4];
+        int32_t duration = 0;
+        [is read:(uint8_t *)&duration maxLength:4];
+        actionAttachment.actionData = @{@"callId": @(callId), @"reason": @(reason), @"duration": @(duration)};
+    } else if (actionType == TGMessageActionPaymentSent) {
+        int32_t currencyLength = 0;
+        [is read:(uint8_t *)&currencyLength maxLength:4];
+        uint8_t *titleBytes = malloc(currencyLength);
+        [is read:titleBytes maxLength:currencyLength];
+        NSString *title = [[NSString alloc] initWithBytesNoCopy:titleBytes length:currencyLength encoding:NSUTF8StringEncoding freeWhenDone:true];
+        int32_t totalAmount = 0;
+        [is read:(uint8_t *)&totalAmount maxLength:4];
+        actionAttachment.actionData = @{@"currency": title, @"totalAmount": @(totalAmount)};
     }
     
     return actionAttachment;

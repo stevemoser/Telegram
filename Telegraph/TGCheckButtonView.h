@@ -3,9 +3,11 @@
 typedef enum
 {
     TGCheckButtonStyleDefault,
+    TGCheckButtonStyleDefaultBlue,
     TGCheckButtonStyleBar,
     TGCheckButtonStyleMedia,
-    TGCheckButtonStyleGallery
+    TGCheckButtonStyleGallery,
+    TGCheckButtonStyleShare
 } TGCheckButtonStyle;
 
 @interface TGCheckButtonView : UIButton

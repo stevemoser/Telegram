@@ -168,6 +168,21 @@
     if (cell == nil)
     {
         cell = [[TGCommandPanelCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"TGCommandPanelCell"];
+        __weak TGModernConversationCommandsAssociatedPanel *weakSelf = self;
+        cell.substituteCommand = ^(TGBotComandInfo *commandInfo) {
+            __strong TGModernConversationCommandsAssociatedPanel *strongSelf = weakSelf;
+            if (strongSelf != nil && commandInfo != nil && strongSelf->_commandSelected) {
+                TGUser *user = nil;
+                for (NSArray *record in strongSelf->_commandList) {
+                    for (TGBotComandInfo *info in record[1]) {
+                        if (info == commandInfo) {
+                            user = record[0];
+                        }
+                    }
+                }
+                strongSelf->_commandSelected(commandInfo, user, true);
+            }
+        };
     }
     
     TGUser *user = _commandList[indexPath.section][0];
@@ -186,14 +201,14 @@
         user = nil;
     
     if (_commandSelected)
-        _commandSelected(((NSArray *)_commandList[indexPath.section][1])[indexPath.row], user);
+        _commandSelected(((NSArray *)_commandList[indexPath.section][1])[indexPath.row], user, false);
 }
 
 - (void)layoutSubviews
 {
     [super layoutSubviews];
     
-    CGFloat separatorHeight = TGIsRetina() ? 0.5f : 1.0f;
+    CGFloat separatorHeight = TGScreenPixel;
     _stripeView.frame = CGRectMake(0.0f, 0.0f, self.frame.size.width, separatorHeight);
     _separatorView.frame = CGRectMake(0.0f, self.frame.size.height - separatorHeight, self.frame.size.width, separatorHeight);
     

@@ -1,19 +1,20 @@
 #import "TGMusicPlayerView.h"
 
+#import <MediaPlayer/MediaPlayer.h>
+#import <pop/POP.h>
+
+#import "TGTelegraph.h"
+#import "TGInterfaceManager.h"
+
+#import "TGDateUtils.h"
 #import "TGImageUtils.h"
 #import "TGFont.h"
 
 #import "TGModernButton.h"
 
-#import "TGTelegraph.h"
-
 #import "TGMusicPlayerController.h"
-
 #import "TGNavigationController.h"
-
-#import "TGDateUtils.h"
-
-#import <pop/POP.h>
+#import "TGVideoMessagePIPController.h"
 
 @interface TGMusicPlayerView ()
 {
@@ -39,6 +40,10 @@
     bool _isVoice;
     
     bool _updateLabelsLayout;
+    
+    MPVolumeView *_volumeOverlayFixView;
+    
+    TGVideoMessagePIPController *_pipController;
 }
 
 @end
@@ -111,11 +116,17 @@
             }
         }];
         
-        UISwipeGestureRecognizer *upSwipeGesture = [[UISwipeGestureRecognizer alloc] initWithTarget:self action:@selector(swipeGesture:)];
-        upSwipeGesture.direction = UISwipeGestureRecognizerDirectionUp;
-        [_minimizedButton addGestureRecognizer:upSwipeGesture];
-        
         _updateLabelsLayout = true;
+        
+        _pipController = [[TGVideoMessagePIPController alloc] init];
+        _pipController.messageVisibilitySignal = ^SSignal *(int64_t peerId, int32_t messageId)
+        {
+            return [[[TGInterfaceManager instance] messageVisibilitySignalWithConversationId:peerId messageId:messageId] deliverOn:[SQueue mainQueue]];
+        };
+        _pipController.requestedDismissal = ^
+        {
+            [TGTelegraphInstance.musicPlayer setPlaylist:nil initialItemKey:nil metadata:nil];
+        };
     }
     return self;
 }
@@ -132,6 +143,24 @@
     
     if (_updateLabelsLayout)
         [self setNeedsLayout];
+}
+
+- (void)inhibitVolumeOverlay
+{
+    if (_volumeOverlayFixView != nil)
+        return;
+    
+    UIWindow *keyWindow = [UIApplication sharedApplication].keyWindow;
+    UIView *rootView = keyWindow.rootViewController.view;
+    
+    _volumeOverlayFixView = [[MPVolumeView alloc] initWithFrame:CGRectMake(10000, 10000, 20, 20)];
+    [rootView addSubview:_volumeOverlayFixView];
+}
+
+- (void)releaseVolumeOverlay
+{
+    [_volumeOverlayFixView removeFromSuperview];
+    _volumeOverlayFixView = nil;
 }
 
 - (void)setStatus:(TGMusicPlayerStatus *)status
@@ -152,26 +181,17 @@
                 title = authorName;
                 performer = [TGDateUtils stringForApproximateDate:status.item.date];
             } else {
-                title = TGLocalized(@"MusicPlayer.VoiceNote");
+                if (status.item.isVideo) {
+                    title = TGLocalized(@"Message.VideoMessage");
+                } else {
+                    title = TGLocalized(@"MusicPlayer.VoiceNote");
+                }
+                if (status.item.date > 0)
+                    performer = [TGDateUtils stringForApproximateDate:status.item.date];
             }
         } else {
-            if ([status.item.media isKindOfClass:[TGDocumentMediaAttachment class]]) {
-                TGDocumentMediaAttachment *document = ((TGDocumentMediaAttachment *)status.item.media);
-                for (id attribute in document.attributes)
-                {
-                    if ([attribute isKindOfClass:[TGDocumentAttributeAudio class]])
-                    {
-                        title = ((TGDocumentAttributeAudio *)attribute).title;
-                        performer = ((TGDocumentAttributeAudio *)attribute).performer;
-                        
-                        break;
-                    }
-                }
-                
-                if (title.length == 0) {
-                    title = document.fileName;
-                }
-            }
+            title = status.item.title;
+            performer = status.item.performer;
             
             if (title.length == 0)
                 title = @"Unknown Track";
@@ -196,6 +216,11 @@
         }
     }
     
+    if (_currentStatus != nil)
+        [self inhibitVolumeOverlay];
+    else
+        [self releaseVolumeOverlay];
+    
     static POPAnimatableProperty *property = nil;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^
@@ -219,7 +244,7 @@
     _pauseButton.hidden = status.paused;
     _scrubbingIndicator.hidden = status.isVoice;
     
-    if (status == nil || status.paused || status.duration < FLT_EPSILON || status.offset < 0.01)
+    if (status == nil || status.paused || status.duration < FLT_EPSILON || status.offset < 0.01 || _scrubbingIndicator.hidden)
     {
         [self pop_removeAnimationForKey:@"scrubbingIndicator"];
         
@@ -257,7 +282,7 @@
     self.backgroundColor = [UIColor whiteColor];
     
     _minimizedBar.frame = CGRectMake(0.0f, 0.0f, self.frame.size.width, 37.0f);
-    CGFloat separatorHeight = TGIsRetina() ? 0.5f : 1.0f;
+    CGFloat separatorHeight = TGScreenPixel;
     _minimizedBarStripe.frame = CGRectMake(0.0f, 37.0f - separatorHeight, self.frame.size.width, separatorHeight);
     _closeButton.frame = CGRectMake(self.frame.size.width - 44.0f, TGRetinaPixel, 44.0f, 36.0f);
     
@@ -311,33 +336,53 @@
 
 - (void)minimizedButtonPressed
 {
-    if (_currentStatus.item == nil || _currentStatus.item.isVoice) {
+    if (_currentStatus.item == nil)
+        return;
+    
+    if (_currentStatus.item.isVoice)
+    {
+        NSNumber *key = (NSNumber *)_currentStatus.item.key;
+        int32_t mid = 0;
+        if ([key isKindOfClass:[NSNumber class]])
+            mid = [key int32Value];
+        
+        if (mid == 0)
+            return;
+        
+        [[TGInterfaceManager instance] navigateToConversationWithId:_currentStatus.item.peerId conversation:nil performActions:nil atMessage:@{ @"mid": @(mid), @"useExisting": @true } clearStack:true openKeyboard:false canOpenKeyboardWhileInTransition:false animated:true];
         return;
     }
     
     TGMusicPlayerController *controller = [[TGMusicPlayerController alloc] init];
-    
-    TGNavigationController *playerNavigationController = [TGNavigationController navigationControllerWithControllers:@[controller]];
     UINavigationController *navigationController = _navigationController;
     
-    if ([UIDevice currentDevice].userInterfaceIdiom == UIUserInterfaceIdiomPad) {
+    UIViewController *presentedController = controller;
+    
+    CGSize preferredSize = CGSizeMake(414.0f, 667.0f);
+    if (TGIsPad())
+    {
+        TGNavigationController *playerNavigationController = [TGNavigationController navigationControllerWithControllers:@[controller]];
         playerNavigationController.presentationStyle = TGNavigationControllerPresentationStyleInFormSheet;
         playerNavigationController.modalPresentationStyle = UIModalPresentationFormSheet;
-        playerNavigationController.preferredContentSize = CGSizeMake(414.0f, 667.0f);
-        
-    } else {
-        playerNavigationController.restrictLandscape = true;
+        playerNavigationController.preferredContentSize = preferredSize;
+        presentedController = playerNavigationController;
     }
-    [navigationController presentViewController:playerNavigationController animated:true completion:nil];
-}
-
-- (void)swipeGesture:(UISwipeGestureRecognizer *)recognizer
-{
-    if (recognizer.state == UIGestureRecognizerStateEnded)
+    else
     {
-        //__strong TGNavigationController *navigationController = (TGNavigationController *)_navigationController;
-        //[navigationController setMinimizePlayer:true];
+        navigationController.modalPresentationStyle = UIModalPresentationCurrentContext;
+        presentedController.modalPresentationStyle = UIModalPresentationOverCurrentContext;
     }
+    
+    if (!TGIsPad())
+    {
+        NSNumber *value = [NSNumber numberWithInt:UIInterfaceOrientationPortrait];
+        [[UIDevice currentDevice] setValue:value forKey:@"orientation"];
+    }
+    
+    [navigationController presentViewController:presentedController animated:true completion:nil];
+    
+    if (TGIsPad() && iosMajorVersion() < 8)
+        presentedController.view.superview.bounds = CGRectMake(0, 0, preferredSize.width, preferredSize.height);
 }
 
 @end

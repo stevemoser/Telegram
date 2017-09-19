@@ -39,13 +39,14 @@ extern NSString *authorNameYou;
 
 - (void)resetState;
 - (void)dialogListFullyReloaded:(NSArray *)items;
+- (void)updateConversations:(NSDictionary *)dict;
 - (void)dialogListItemsChanged:(NSArray *)insertedIndices insertedItems:(NSArray *)insertedItems updatedIndices:(NSArray *)updatedIndices updatedItems:(NSArray *)updatedItems removedIndices:(NSArray *)removedIndices;
 
 - (void)selectConversationWithId:(int64_t)conversationId;
 
 - (void)searchResultsReloaded:(NSDictionary *)items searchString:(NSString *)searchString;
 
-- (void)titleStateUpdated:(NSString *)text isLoading:(bool)isLoading;
+- (void)titleStateUpdated:(NSString *)text isLoading:(bool)isLoading isProxy:(bool)isProxy;
 
 - (void)userTypingInConversationUpdated:(int64_t)conversationId typingString:(NSString *)typingString;
 

@@ -10,9 +10,11 @@
 #import "TGTelegraphDialogListCompanion.h"
 #import "TGContactsController.h"
 #import "TGAccountSettingsController.h"
+#import "TGRecentCallsController.h"
 #import "TGMainTabsController.h"
 
-#import "TGKeyCommand.h"
+#import "TGCallStatusBarView.h"
+#import "TGVolumeBarView.h"
 
 @interface TGRootController ()
 {
@@ -24,6 +26,7 @@
     UIUserInterfaceSizeClass _currentSizeClass;
     
     SVariable *_sizeClassVariable;
+    SMetaDisposable *_callDisposable;
 }
 
 @end
@@ -46,14 +49,24 @@
         
         _accountSettingsController = [[TGAccountSettingsController alloc] initWithUid:0];
         
+        __weak TGRootController *weakSelf = self;
+        _callsController = [[TGRecentCallsController alloc] init];
+        _callsController.missedCountChanged = ^(NSInteger count)
+        {
+            __strong TGRootController *strongSelf = weakSelf;
+            if (strongSelf != nil)
+                [strongSelf->_mainTabsController setMissedCallsCount:(int)count];
+        };
+        
         _mainTabsController = [[TGMainTabsController alloc] init];
-        [_mainTabsController setViewControllers:[NSArray arrayWithObjects:_contactsController, _dialogListController, _accountSettingsController, nil]];
-        [_mainTabsController setSelectedIndex:1];
+        [_mainTabsController setViewControllers:[NSArray arrayWithObjects:_contactsController, _callsController, _dialogListController, _accountSettingsController, nil]];
+        [_mainTabsController setSelectedIndex:2];
+        [_mainTabsController setCallsHidden:!TGAppDelegateInstance.showCallsTab animated:false];
         
         _masterNavigationController = [TGNavigationController navigationControllerWithControllers:@[]];
         _detailNavigationController = [TGNavigationController navigationControllerWithControllers:@[]];
         [_detailNavigationController setDisplayPlayer:true];
-
+        
         if (iosMajorVersion() >= 8)
         {
             _currentSizeClass = UIUserInterfaceSizeClassCompact;
@@ -79,6 +92,9 @@
 }
 
 - (bool)shouldAutorotate {
+    if (self.associatedWindowStack.count > 0) {
+        return [[self.associatedWindowStack.lastObject rootViewController] shouldAutorotate];
+    }
     return [(UIViewController *)[self viewControllers].lastObject shouldAutorotate];
 }
 
@@ -100,6 +116,26 @@
     
     if (_detailNavigationController.viewControllers.count != 0) {
         [self addDetailController];
+    }
+    
+    __weak TGRootController *weakSelf = self;
+    _callStatusBarView = [[TGCallStatusBarView alloc] initWithFrame:CGRectMake(0, 0, self.view.frame.size.width, 40)];
+    _callStatusBarView.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    _callStatusBarView.hidden = true;
+    _callStatusBarView.visiblilityChanged = ^(bool hidden)
+    {
+        __strong TGRootController *strongSelf = weakSelf;
+        if (strongSelf != nil)
+        {
+            [strongSelf->_masterNavigationController setShowCallStatusBar:!hidden];
+            [strongSelf->_detailNavigationController setShowCallStatusBar:!hidden];
+        }
+    };
+    
+    if (!TGIsPad())
+    {
+        _volumeBarView = [[TGVolumeBarView alloc] initWithFrame:CGRectMake(0, 0, self.view.frame.size.width, 16.0f)];
+        _volumeBarView.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     }
 }
 
@@ -154,6 +190,8 @@
         [self updateSizeClass];
         [_sizeClassVariable set:[SSignal single:@(_currentSizeClass)]];
     }
+    
+    //[self setNeedsStatusBarAppearanceUpdate];
 }
 
 - (void)updateSizeClass {
@@ -256,12 +294,34 @@
     }
 }
 
+- (UIStatusBarStyle)preferredStatusBarStyle
+{
+    if (_mainTabsController.presentedViewController != nil)
+        return [_mainTabsController.presentedViewController preferredStatusBarStyle];
+    
+    if (_detailNavigationController.topViewController != nil) {
+        return [_detailNavigationController.topViewController preferredStatusBarStyle];
+    } else if (_masterNavigationController.topViewController != nil) {
+        return [_masterNavigationController.topViewController preferredStatusBarStyle];
+    } else {
+        return [super preferredStatusBarStyle];
+    }
+}
+
+- (BOOL)prefersStatusBarHidden
+{
+    //if (!TGIsPad() && UIInterfaceOrientationIsLandscape([UIApplication sharedApplication].statusBarOrientation))
+    //    return true;
+    
+    return [super prefersStatusBarHidden];
+}
+
 - (SSignal *)sizeClass {
     return [_sizeClassVariable signal];
 }
 
 - (bool)isSplitView {
-    if (iosMajorVersion() < 9 || [UIDevice currentDevice].userInterfaceIdiom != UIUserInterfaceIdiomPad)
+    if (iosMajorVersion() < 9 || !TGIsPad())
         return false;
     
     if (self.traitCollection.horizontalSizeClass == UIUserInterfaceSizeClassCompact)
@@ -307,6 +367,13 @@
         }
     });
     return value;
+}
+
+- (bool)callStatusBarHidden
+{
+    if (_callStatusBarView != nil)
+        return _callStatusBarView.realHidden;
+    return true;
 }
 
 @end

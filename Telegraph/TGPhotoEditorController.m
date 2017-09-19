@@ -1,3 +1,4 @@
+
 #import "TGPhotoEditorController.h"
 
 #import "TGApplication.h"
@@ -6,26 +7,28 @@
 
 #import "ASWatcher.h"
 
+#import <Photos/Photos.h>
+
 #import "TGOverlayControllerWindow.h"
 
 #import "TGPhotoEditorAnimation.h"
 #import "TGPhotoEditorInterfaceAssets.h"
 #import "TGImageUtils.h"
 #import "TGPhotoEditorUtils.h"
-#import <Photos/Photos.h>
+#import "TGPaintUtils.h"
 
 #import "TGHacks.h"
 #import "UIImage+TG.h"
 
 #import "TGProgressWindow.h"
 
-#import "TGActionSheet.h"
-
 #import "PGPhotoEditor.h"
 #import "PGEnhanceTool.h"
 
 #import "PGPhotoEditorValues.h"
 #import "TGVideoEditAdjustments.h"
+#import "TGPaintingData.h"
+#import "TGMediaVideoConverter.h"
 
 #import "TGPhotoToolbarView.h"
 #import "TGPhotoEditorPreviewView.h"
@@ -33,14 +36,21 @@
 #import "TGMenuView.h"
 
 #import "TGMediaAssetsLibrary.h"
+#import "TGMediaAssetImageSignals.h"
 
 #import "TGPhotoCaptionController.h"
 #import "TGPhotoCropController.h"
 #import "TGPhotoAvatarCropController.h"
 #import "TGPhotoToolsController.h"
+#import "TGPhotoPaintController.h"
+#import "TGPhotoQualityController.h"
 #import "TGPhotoEditorItemController.h"
 
 #import "TGMessageImageViewOverlayView.h"
+
+#import "TGMenuSheetController.h"
+
+#import "AVURLAsset+TGMediaItem.h"
 
 @interface TGPhotoEditorController () <ASWatcher, TGViewControllerNavigationBarAppearance, UIDocumentInteractionControllerDelegate>
 {
@@ -64,7 +74,6 @@
     id<TGMediaEditableItem> _item;
     UIImage *_screenImage;
     UIImage *_thumbnailImage;
-    UIImage *_aspectRatioThumbnailImage;
     
     id<TGMediaEditAdjustments> _initialAdjustments;
     NSString *_caption;
@@ -118,6 +127,13 @@
         {
             CGFloat shortSide = MIN(_item.originalSize.width, _item.originalSize.height);
             _photoEditor.cropRect = CGRectMake((_item.originalSize.width - shortSide) / 2, (_item.originalSize.height - shortSide) / 2, shortSide, shortSide);
+        }
+                
+        if ([adjustments isKindOfClass:[TGVideoEditAdjustments class]])
+        {
+            TGVideoEditAdjustments *videoAdjustments = (TGVideoEditAdjustments *)adjustments;
+            _photoEditor.trimStartValue = videoAdjustments.trimStartValue;
+            _photoEditor.trimEndValue = videoAdjustments.trimEndValue;
         }
     }
     return self;
@@ -188,25 +204,56 @@
         if (strongSelf == nil)
             return;
         
-        if (tab == TGPhotoEditorRotateTab)
-            [strongSelf rotateVideoOrReset:false];
-        else
-            [strongSelf presentEditorTab:tab];
+        switch (tab)
+        {
+            default:
+                [strongSelf presentEditorTab:tab];
+                break;
+                
+            case TGPhotoEditorToolsTab:
+            case TGPhotoEditorBlurTab:
+            case TGPhotoEditorCurvesTab:
+            case TGPhotoEditorTintTab:
+                if ([strongSelf->_currentTabController isKindOfClass:[TGPhotoToolsController class]])
+                    [strongSelf->_currentTabController handleTabAction:tab];
+                else
+                    [strongSelf presentEditorTab:TGPhotoEditorToolsTab];
+                break;
+                
+            case TGPhotoEditorPaintTab:
+            case TGPhotoEditorEraserTab:
+                if ([strongSelf->_currentTabController isKindOfClass:[TGPhotoPaintController class]])
+                    [strongSelf->_currentTabController handleTabAction:tab];
+                else
+                    [strongSelf presentEditorTab:TGPhotoEditorPaintTab];
+                break;
+                
+            case TGPhotoEditorStickerTab:
+            case TGPhotoEditorTextTab:
+                [strongSelf->_currentTabController handleTabAction:tab];
+                break;
+                
+            case TGPhotoEditorRotateTab:
+            case TGPhotoEditorMirrorTab:
+            case TGPhotoEditorAspectRatioTab:
+                if ([strongSelf->_currentTabController isKindOfClass:[TGPhotoCropController class]])
+                    [strongSelf->_currentTabController handleTabAction:tab];
+                break;
+        }
     };
     
     
-    NSString *backButtonTitle = TGLocalized(@"Common.Cancel");
+    TGPhotoEditorBackButton backButton = TGPhotoEditorBackButtonCancel;
     if ([self presentedForAvatarCreation])
     {
         if ([self presentedFromCamera])
-            backButtonTitle = TGLocalized(@"Camera.Retake");
+            backButton = TGPhotoEditorBackButtonCancel;
         else
-            backButtonTitle = TGLocalized(@"Common.Back");
+            backButton = TGPhotoEditorBackButtonCancel;
     }
 
-    NSString *doneButtonTitle = [self presentedForAvatarCreation] ? TGLocalized(@"MediaPicker.Choose") : TGLocalized(@"Common.Done");
-
-    _portraitToolbarView = [[TGPhotoToolbarView alloc] initWithBackButtonTitle:backButtonTitle doneButtonTitle:doneButtonTitle accentedDone:![self presentedForAvatarCreation] solidBackground:true];
+    TGPhotoEditorDoneButton doneButton = TGPhotoEditorDoneButtonCheck;
+    _portraitToolbarView = [[TGPhotoToolbarView alloc] initWithBackButton:backButton doneButton:doneButton solidBackground:true];
     [_portraitToolbarView setToolbarTabs:_availableTabs animated:false];
     [_portraitToolbarView setActiveTab:_currentTab];
     _portraitToolbarView.cancelPressed = toolbarCancelPressed;
@@ -215,7 +262,7 @@
     _portraitToolbarView.tabPressed = toolbarTabPressed;
     [_wrapperView addSubview:_portraitToolbarView];
     
-    _landscapeToolbarView = [[TGPhotoToolbarView alloc] initWithBackButtonTitle:backButtonTitle doneButtonTitle:doneButtonTitle accentedDone:![self presentedForAvatarCreation] solidBackground:true];
+    _landscapeToolbarView = [[TGPhotoToolbarView alloc] initWithBackButton:backButton doneButton:doneButton solidBackground:true];
     [_landscapeToolbarView setToolbarTabs:_availableTabs animated:false];
     [_landscapeToolbarView setActiveTab:_currentTab];
     _landscapeToolbarView.cancelPressed = toolbarCancelPressed;
@@ -233,29 +280,39 @@
     if ([UIDevice currentDevice].userInterfaceIdiom == UIUserInterfaceIdiomPad)
         orientation = UIInterfaceOrientationPortrait;
     
-    CGRect containerFrame = [TGPhotoEditorTabController photoContainerFrameForParentViewFrame:self.view.frame toolbarLandscapeSize:[_landscapeToolbarView landscapeSize] orientation:orientation includePanel:false];
+    CGRect containerFrame = [TGPhotoEditorTabController photoContainerFrameForParentViewFrame:self.view.frame toolbarLandscapeSize:TGPhotoEditorToolbarSize orientation:orientation panelSize:TGPhotoEditorPanelSize];
     CGSize fittedSize = TGScaleToSize(_photoEditor.rotatedCropSize, containerFrame.size);
     
     _previewView = [[TGPhotoEditorPreviewView alloc] initWithFrame:CGRectMake(0, 0, fittedSize.width, fittedSize.height)];
+    _previewView.clipsToBounds = true;
     [_previewView setSnapshotImage:_screenImage];
     [_photoEditor setPreviewOutput:_previewView];
-    
-    [self updateEditorButtonsWithAdjustments:_initialAdjustments];
+    [self updatePreviewView];
     
     [self presentEditorTab:_currentTab];
-                    
-    if ([self presentedForAvatarCreation])
+}
+
+- (void)setToolbarHidden:(bool)hidden animated:(bool)animated
+{
+    if (self.requestToolbarsHidden == nil)
+        return;
+    
+    if (_hiddenToolbarView == hidden)
+        return;
+    
+    if (hidden)
     {
-        [_landscapeToolbarView calculateLandscapeSizeForPossibleButtonTitles:@[ backButtonTitle,
-                                                                                TGLocalized(@"MediaPicker.Choose") ]];
+        [_portraitToolbarView transitionOutAnimated:animated transparent:true hideOnCompletion:false];
+        [_landscapeToolbarView transitionOutAnimated:animated transparent:true hideOnCompletion:false];
     }
     else
     {
-        [_landscapeToolbarView calculateLandscapeSizeForPossibleButtonTitles:@[ backButtonTitle,
-                                                                                TGLocalized(@"Common.Back"),
-                                                                                TGLocalized(@"Common.Done"),
-                                                                                TGLocalized(@"MediaPicker.Send") ]];
+        [_portraitToolbarView transitionInAnimated:animated transparent:true];
+        [_landscapeToolbarView transitionInAnimated:animated transparent:true];
     }
+    
+    self.requestToolbarsHidden(hidden, animated);
+    _hiddenToolbarView = hidden;
 }
 
 - (BOOL)prefersStatusBarHidden
@@ -289,49 +346,46 @@
 {
     [super viewDidLoad];
     
-    SSignal *thumbnailImageSignal = self.requestThumbnailImage(_item);
-    [[thumbnailImageSignal filter:^bool(id image)
-    {
-        return [image isKindOfClass:[UIImage class]];
-    }] startWithNext:^(UIImage *next)
-    {
-        _aspectRatioThumbnailImage = next;
-        
-        if ([_currentTabController isKindOfClass:[TGPhotoCropController class]])
-            [(TGPhotoCropController *)_currentTabController setBackdropImage:_aspectRatioThumbnailImage];
-    }];
-    
     if ([_currentTabController isKindOfClass:[TGPhotoCropController class]] || [_currentTabController isKindOfClass:[TGPhotoCaptionController class]] || [_currentTabController isKindOfClass:[TGPhotoAvatarCropController class]])
         return;
     
+    NSTimeInterval position = 0;
+    TGMediaVideoEditAdjustments *adjustments = [_photoEditor exportAdjustments];
+    if ([adjustments isKindOfClass:[TGMediaVideoEditAdjustments class]])
+        position = adjustments.trimStartValue;
+    
+    CGSize screenSize = TGNativeScreenSize();
     SSignal *signal = nil;
-    if ([_photoEditor hasDefaultCropping])
+    if ([_photoEditor hasDefaultCropping] && (NSInteger)screenSize.width == 320)
     {
-        signal = [self.requestOriginalScreenSizeImage(_item) filter:^bool(id image)
+        signal = [self.requestOriginalScreenSizeImage(_item, position) filter:^bool(id image)
         {
             return [image isKindOfClass:[UIImage class]];
         }];
     }
     else
     {
-        signal = [[[[self.requestOriginalFullSizeImage(_item) takeLast] deliverOn:_queue] filter:^bool(id image)
+        signal = [[[[self.requestOriginalFullSizeImage(_item, position) takeLast] deliverOn:_queue] filter:^bool(id image)
         {
             return [image isKindOfClass:[UIImage class]];
         }] map:^UIImage *(UIImage *image)
         {
-            return TGPhotoEditorCrop(image, _photoEditor.cropOrientation, _photoEditor.cropRotation, _photoEditor.cropRect, TGPhotoEditorScreenImageMaxSize(), _photoEditor.originalSize, true);
+            return TGPhotoEditorCrop(image, nil, _photoEditor.cropOrientation, _photoEditor.cropRotation, _photoEditor.cropRect, _photoEditor.cropMirrored, TGPhotoEditorScreenImageMaxSize(), _photoEditor.originalSize, true);
         }];
     }
     
     [signal startWithNext:^(UIImage *next)
     {
-        [_photoEditor setImage:next forCropRect:_photoEditor.cropRect cropRotation:_photoEditor.cropRotation cropOrientation:_photoEditor.cropOrientation fullSize:false];
+        [_photoEditor setImage:next forCropRect:_photoEditor.cropRect cropRotation:_photoEditor.cropRotation cropOrientation:_photoEditor.cropOrientation cropMirrored:_photoEditor.cropMirrored fullSize:false];
         
         if (_ignoreDefaultPreviewViewTransitionIn)
         {
             TGDispatchOnMainThread(^
             {
-                [_previewView setSnapshotImage:next];
+                if ([_currentTabController isKindOfClass:[TGPhotoQualityController class]])
+                    [_previewView setSnapshotImageOnTransition:next];
+                else
+                    [_previewView setSnapshotImage:next];
             });
         }
         else
@@ -458,7 +512,7 @@
 
 #pragma mark - 
 
-- (void)createEditedImageWithEditorValues:(PGPhotoEditorValues *)editorValues createThumbnail:(bool)createThumbnail showProgress:(bool)showProgress saveOnly:(bool)saveOnly completion:(void (^)(UIImage *))completion
+- (void)createEditedImageWithEditorValues:(PGPhotoEditorValues *)editorValues createThumbnail:(bool)createThumbnail saveOnly:(bool)saveOnly completion:(void (^)(UIImage *))completion
 {
     if (!saveOnly)
     {
@@ -476,29 +530,13 @@
             
             return;
         }
-        
-        if ([editorValues isEqual:_initialAdjustments])
-        {
-            if (self.willFinishEditing != nil)
-                self.willFinishEditing(nil, nil, false);
-            
-            if (self.didFinishEditing != nil)
-                self.didFinishEditing(nil, nil, nil, false);
-            
-            if (completion != nil)
-                completion(nil);
-            
-            return;
-        }
     }
     
-    TGProgressWindow *progressWindow = nil;
-    if (showProgress)
-    {
-        progressWindow = [[TGProgressWindow alloc] init];
-        progressWindow.windowLevel = self.view.window.windowLevel + 0.001f;
-        [progressWindow showAnimated];
-    }
+    if (!saveOnly && self.willFinishEditing != nil)
+        self.willFinishEditing(editorValues, [_currentTabController currentResultRepresentation], true);
+    
+    if (!saveOnly && completion != nil)
+        completion(nil);
     
     UIImage *fullSizeImage = self.fullSizeImage;
     PGPhotoEditor *photoEditor = _photoEditor;
@@ -506,7 +544,7 @@
     SSignal *imageSignal = nil;
     if (fullSizeImage == nil)
     {
-        imageSignal = [[self.requestOriginalFullSizeImage(_item) filter:^bool(id result)
+        imageSignal = [[self.requestOriginalFullSizeImage(_item, 0) filter:^bool(id result)
         {
             return [result isKindOfClass:[UIImage class]];
         }] takeLast];
@@ -516,11 +554,15 @@
         imageSignal = [SSignal single:fullSizeImage];
     }
     
+    bool hasImageAdjustments = editorValues.toolsApplied || saveOnly;
+    bool hasPainting = editorValues.hasPainting;
+    
     SSignal *(^imageCropSignal)(UIImage *, bool) = ^(UIImage *image, bool resize)
     {
         return [[SSignal alloc] initWithGenerator:^id<SDisposable>(SSubscriber *subscriber)
         {
-            UIImage *croppedImage = TGPhotoEditorCrop(image, photoEditor.cropOrientation, photoEditor.cropRotation, photoEditor.cropRect, TGPhotoEditorResultImageMaxSize, _photoEditor.originalSize, resize);
+            UIImage *paintingImage = !hasImageAdjustments ? editorValues.paintingData.image : nil;
+            UIImage *croppedImage = TGPhotoEditorCrop(image, paintingImage, photoEditor.cropOrientation, photoEditor.cropRotation, photoEditor.cropRect, photoEditor.cropMirrored, TGPhotoEditorResultImageMaxSize, photoEditor.originalSize, resize);
             [subscriber putNext:croppedImage];
             [subscriber putCompletion];
             
@@ -532,9 +574,15 @@
     {
         return [[SSignal alloc] initWithGenerator:^id<SDisposable>(SSubscriber *subscriber)
         {
-            [_photoEditor setImage:image forCropRect:photoEditor.cropRect cropRotation:photoEditor.cropRotation cropOrientation:photoEditor.cropOrientation fullSize:true];
-            [_photoEditor createResultImageWithCompletion:^(UIImage *result)
+            [photoEditor setImage:image forCropRect:photoEditor.cropRect cropRotation:photoEditor.cropRotation cropOrientation:photoEditor.cropOrientation cropMirrored:photoEditor.cropMirrored fullSize:true];
+            [photoEditor createResultImageWithCompletion:^(UIImage *result)
             {
+                if (hasPainting)
+                {
+                    result = TGPaintCombineCroppedImages(result, editorValues.paintingData.image, true, photoEditor.originalSize, photoEditor.cropRect, photoEditor.cropOrientation, photoEditor.cropRotation, photoEditor.cropMirrored);
+                    [TGPaintingData facilitatePaintingData:editorValues.paintingData];
+                }
+                
                 [subscriber putNext:result];
                 [subscriber putCompletion];
             }];
@@ -542,18 +590,10 @@
             return nil;
         }];
     };
-    
-    if (!saveOnly && self.willFinishEditing != nil)
-        self.willFinishEditing(editorValues, [_currentTabController currentResultRepresentation], true);
-    
-    if (!saveOnly && completion != nil)
-        completion(nil);
-    
-    bool hasImageAdjustments = editorValues.toolsApplied || saveOnly;
-    
+
     SSignal *renderedImageSignal = [[imageSignal mapToSignal:^SSignal *(UIImage *image)
     {
-        return [imageCropSignal(image, !hasImageAdjustments) startOn:_queue];
+        return [imageCropSignal(image, !hasImageAdjustments || hasPainting) startOn:_queue];
     }] mapToSignal:^SSignal *(UIImage *image)
     {
         if (hasImageAdjustments)
@@ -576,6 +616,9 @@
         {
             if (!hasImageAdjustments)
             {
+                if (hasPainting && self.didFinishRenderingFullSizeImage != nil)
+                    self.didFinishRenderingFullSizeImage(image);
+
                 return image;
             }
             else
@@ -615,14 +658,13 @@
             return result;
         }] deliverOn:[SQueue mainQueue]] startWithNext:^(NSDictionary *result)
         {
-            [progressWindow dismiss:true];
-            
             UIImage *image = result[@"image"];
             UIImage *thumbnailImage = result[@"thumbnail"];
             
             if (!saveOnly && self.didFinishEditing != nil)
                 self.didFinishEditing(editorValues, image, thumbnailImage, true);
-        } error:^(__unused id error) {
+        } error:^(__unused id error)
+        {
             TGLog(@"renderedImageSignal error");
         } completed:nil];
     }
@@ -668,13 +710,7 @@
     }];
     
     _currentTabController.beginTransitionOut = self.beginTransitionOut;
-    if (_hiddenToolbarView && self.requestToolbarsHidden != nil)
-    {
-        if (_intent == TGPhotoEditorControllerVideoIntent)
-            self.requestToolbarsHidden(false, UIInterfaceOrientationIsLandscape(self.interfaceOrientation));
-        else
-            self.requestToolbarsHidden(false, true);
-    }
+    [self setToolbarHidden:false animated:true];
     
     if (self.beginCustomTransitionOut != nil)
     {
@@ -725,6 +761,7 @@
         transitionReferenceView = [currentController transitionOutReferenceView];
         transitionNoTransitionView = [currentController isKindOfClass:[TGPhotoAvatarCropController class]];
         
+        currentController.switchingToTab = tab;
         [currentController transitionOutSwitching:true completion:^
         {
             [currentController removeFromParentViewController];
@@ -768,39 +805,18 @@
         snapshotImage = _screenImage;
     }
     
-    PGPhotoEditorValues *editorValues = [_photoEditor exportAdjustments];
-    [self updateEditorButtonsWithAdjustments:editorValues];
-    
     _switchingTab = true;
     
     __weak TGPhotoEditorController *weakSelf = self;
     TGPhotoEditorTabController *controller = nil;
     switch (tab)
     {
-        case TGPhotoEditorCaptionTab:
+        case TGPhotoEditorPaintTab:
         {
-            TGPhotoCaptionController *captionController = [[TGPhotoCaptionController alloc] initWithPhotoEditor:_photoEditor
-                                                                                                    previewView:_previewView
-                                                                                                        caption:_caption];
-            captionController.toolbarLandscapeSize = _landscapeToolbarView.landscapeSize;
-            captionController.suggestionContext = self.suggestionContext;
-            captionController.captionSet = ^(NSString *caption)
-            {
-                if (caption.length == 0)
-                    caption = nil;
-                
-                __strong TGPhotoEditorController *strongSelf = weakSelf;
-                if (strongSelf == nil)
-                    return;
-                
-                strongSelf->_caption = caption;
-                if (strongSelf.captionSet != nil)
-                    strongSelf.captionSet(caption);
-                
-                [strongSelf doneButtonPressed];
-            };
+            TGPhotoPaintController *paintController = [[TGPhotoPaintController alloc] initWithPhotoEditor:_photoEditor previewView:_previewView];
+            paintController.toolbarLandscapeSize = TGPhotoEditorToolbarSize;
             
-            captionController.beginTransitionIn = ^UIView *(CGRect *referenceFrame, UIView **parentView, bool *noTransitionView)
+            paintController.beginTransitionIn = ^UIView *(CGRect *referenceFrame, UIView **parentView, bool *noTransitionView)
             {
                 __strong TGPhotoEditorController *strongSelf = weakSelf;
                 if (strongSelf == nil)
@@ -809,13 +825,10 @@
                 *referenceFrame = transitionReferenceFrame;
                 *parentView = transitionParentView;
                 *noTransitionView = transitionNoTransitionView;
-
-                [strongSelf->_portraitToolbarView transitionOutAnimated:!isInitialAppearance transparent:true hideOnCompletion:true];
-                [strongSelf->_landscapeToolbarView transitionOutAnimated:!isInitialAppearance transparent:true hideOnCompletion:true];
                 
                 return transitionReferenceView;
             };
-            captionController.finishedTransitionIn = ^
+            paintController.finishedTransitionIn = ^
             {
                 __strong TGPhotoEditorController *strongSelf = weakSelf;
                 if (strongSelf == nil)
@@ -827,16 +840,10 @@
                 strongSelf->_switchingTab = false;
             };
             
-            controller = captionController;
-            
-            if (self.requestToolbarsHidden != nil)
-            {
-                self.requestToolbarsHidden(true, isInitialAppearance);
-                _hiddenToolbarView = true;                
-            }
+            controller = paintController;
         }
             break;
-            
+                        
         case TGPhotoEditorCropTab:
         {
             __block UIView *initialBackgroundView = nil;
@@ -852,7 +859,7 @@
                     [cropController setSnapshotView:snapshotView];
                 else if (snapshotImage != nil)
                     [cropController setSnapshotImage:snapshotImage];
-                cropController.toolbarLandscapeSize = _landscapeToolbarView.landscapeSize;
+                cropController.toolbarLandscapeSize = TGPhotoEditorToolbarSize;
                 cropController.beginTransitionIn = ^UIView *(CGRect *referenceFrame, UIView **parentView, bool *noTransitionView)
                 {
                     __strong TGPhotoEditorController *strongSelf = weakSelf;
@@ -922,7 +929,7 @@
                     [strongSelf->_currentTabController _finishedTransitionInWithView:nil];
                 };
                 
-                [[[[self.requestOriginalFullSizeImage(_item) reduceLeftWithPassthrough:nil with:^id(__unused id current, __unused id next, void (^emit)(id))
+                [[[[self.requestOriginalFullSizeImage(_item, 0) reduceLeftWithPassthrough:nil with:^id(__unused id current, __unused id next, void (^emit)(id))
                 {
                     if ([next isKindOfClass:[UIImage class]])
                     {
@@ -965,12 +972,11 @@
                                                                                                previewView:_previewView
                                                                                                   metadata:self.metadata
                                                                                                   forVideo:(_intent == TGPhotoEditorControllerVideoIntent)];
-                [cropController setBackdropImage:_aspectRatioThumbnailImage];
                 if (snapshotView != nil)
                     [cropController setSnapshotView:snapshotView];
                 else if (snapshotImage != nil)
                     [cropController setSnapshotImage:snapshotImage];
-                cropController.toolbarLandscapeSize = _landscapeToolbarView.landscapeSize;
+                cropController.toolbarLandscapeSize = TGPhotoEditorToolbarSize;
                 cropController.beginTransitionIn = ^UIView *(CGRect *referenceFrame, UIView **parentView, bool *noTransitionView)
                 {
                     *referenceFrame = transitionReferenceFrame;
@@ -1002,12 +1008,6 @@
                         {
                             backgroundView.alpha = 1.0f;
                         }];
-                        
-                        if (strongSelf->_intent == TGPhotoEditorControllerVideoIntent && strongSelf.requestToolbarsHidden != nil && UIInterfaceOrientationIsLandscape(strongSelf.interfaceOrientation))
-                        {
-                            strongSelf.requestToolbarsHidden(true, true);
-                            strongSelf->_hiddenToolbarView = true;
-                        }
                     }
                     
                     return transitionReferenceView;
@@ -1029,12 +1029,6 @@
                         strongSelf->_backgroundView.alpha = 0.0f;
                     }
                     
-                    if (strongSelf->_intent == TGPhotoEditorControllerVideoIntent && strongSelf.requestToolbarsHidden != nil && !strongSelf->_hiddenToolbarView)
-                    {
-                        strongSelf.requestToolbarsHidden(true, false);
-                        strongSelf->_hiddenToolbarView = true;
-                    }
-                    
                     strongSelf->_switchingTab = false;
                 };
                 cropController.cropReset = ^
@@ -1043,12 +1037,12 @@
                     if (strongSelf == nil)
                         return;
                     
-                    [strongSelf rotateVideoOrReset:true];
+                    [strongSelf reset];
                 };
                 
                 if (_intent != TGPhotoEditorControllerVideoIntent)
                 {
-                    [[self.requestOriginalFullSizeImage(_item) deliverOn:[SQueue mainQueue]] startWithNext:^(UIImage *image)
+                    [[self.requestOriginalFullSizeImage(_item, 0) deliverOn:[SQueue mainQueue]] startWithNext:^(UIImage *image)
                     {
                         if (cropController.dismissing && !cropController.switching)
                             return;
@@ -1066,40 +1060,6 @@
                     [cropController setImage:image];
                 }
                 
-//                if ([_item respondsToSelector:@selector(fetchMetadataWithCompletion:)])
-//                {
-//                    [_item fetchMetadataWithCompletion:^(NSDictionary *metadata)
-//                    {
-//                        if (metadata == nil)
-//                            return;
-//                        
-//                        NSDictionary *exif = metadata[@"{Exif}"];
-//                        if (exif == nil)
-//                            return;
-//                        
-//                        NSString *userComment = exif[@"UserComment"];
-//                        if (userComment == nil)
-//                            return;
-//                        
-//                        @try
-//                        {
-//                            NSDictionary *dictionary = [NSJSONSerialization JSONObjectWithData:[userComment dataUsingEncoding:NSUTF8StringEncoding] options:NSJSONReadingMutableContainers error:nil];
-//                            if (dictionary == nil)
-//                                return;
-//                            
-//                            if (dictionary[@"DeviceAngle"] == nil)
-//                                return;
-//                            
-//                            CGFloat val = [[dictionary objectForKey:@"DeviceAngle"] floatValue];
-//                            [cropController setAutorotationAngle:-TGRadiansToDegrees(val)];
-//                        }
-//                        @catch (NSException *e)
-//                        {
-//                            TGLog(@"Editor: failed to parse UserComment");
-//                        }
-//                    }];
-//                }
-                
                 controller = cropController;
             }
         }
@@ -1107,110 +1067,13 @@
             
         case TGPhotoEditorToolsTab:
         {
-            TGPhotoToolsController *toolsController = [[TGPhotoToolsController alloc] initWithPhotoEditor:_photoEditor
-                                                                                              previewView:_previewView];
-            toolsController.toolbarLandscapeSize = _landscapeToolbarView.landscapeSize;
-
-            TGPhotoEditorItemController *enhanceController = nil;
-            if (![editorValues toolsApplied] && !_hasOpenedPhotoTools)
-            {
-                _ignoreDefaultPreviewViewTransitionIn = true;
-                _hasOpenedPhotoTools = true;
-                
-                PGEnhanceTool *enhanceTool = nil;
-                for (PGPhotoTool *tool in _photoEditor.tools)
-                {
-                    if ([tool isKindOfClass:[PGEnhanceTool class]])
-                    {
-                        enhanceTool = (PGEnhanceTool *)tool;
-                        break;
-                    }
-                }
-            
-                enhanceController = [[TGPhotoEditorItemController alloc] initWithEditorItem:enhanceTool
-                                                                                photoEditor:_photoEditor
-                                                                                previewView:nil];
-                enhanceController.toolbarLandscapeSize = _landscapeToolbarView.landscapeSize;
-                enhanceController.initialAppearance = true;
-                
-                if ([_currentTabController isKindOfClass:[TGPhotoCropController class]] || [_currentTabController isKindOfClass:[TGPhotoAvatarCropController class]])
-                {
-                    enhanceController.skipProcessingOnCompletion = true;
-                    
-                    void (^block)(void) = ^
-                    {
-                        enhanceController.skipProcessingOnCompletion = false;
-                    };
-                    
-                    if ([_currentTabController isKindOfClass:[TGPhotoCropController class]])
-                        ((TGPhotoCropController *)_currentTabController).finishedPhotoProcessing = block;
-                    else if ([_currentTabController isKindOfClass:[TGPhotoAvatarCropController class]])
-                        ((TGPhotoAvatarCropController *)_currentTabController).finishedPhotoProcessing = block;
-                }
-                
-                __weak TGPhotoToolsController *weakToolsController = toolsController;
-                enhanceController.editorItemUpdated = ^
-                {
-                    __strong TGPhotoToolsController *strongToolsController = weakToolsController;
-                    if (strongToolsController != nil)
-                        [strongToolsController updateValues];
-                };
-                
-                enhanceController.beginTransitionOut = ^
-                {
-                    __strong TGPhotoEditorController *strongSelf = weakSelf;
-                    if (strongSelf == nil)
-                        return;
-                    
-                    if (strongSelf->_currentTabController.beginItemTransitionOut != nil)
-                        strongSelf->_currentTabController.beginItemTransitionOut();
-                    
-                    //TGPhotoEditorPreviewView *previewView = strongSelf->_previewView;
-                    //previewView.interactionEnded = strongSelf->_currentTabController.interactionEnded;
-                };
-                
-                enhanceController.finishedCombinedTransition = ^
-                {
-                    __strong TGPhotoEditorController *strongSelf = weakSelf;
-                    if (strongSelf == nil)
-                        return;
-                    
-                    strongSelf->_ignoreDefaultPreviewViewTransitionIn = false;
-                };
-                
-                [self addChildViewController:enhanceController];
-            }
-            
-            __weak TGPhotoEditorItemController *weakEnhanceController = enhanceController;
-            
+            TGPhotoToolsController *toolsController = [[TGPhotoToolsController alloc] initWithPhotoEditor:_photoEditor previewView:_previewView];
+            toolsController.toolbarLandscapeSize = TGPhotoEditorToolbarSize;
             toolsController.beginTransitionIn = ^UIView *(CGRect *referenceFrame, UIView **parentView, bool *noTransitionView)
             {
                 *referenceFrame = transitionReferenceFrame;
                 *parentView = transitionParentView;
                 *noTransitionView = transitionNoTransitionView;
-                
-                __strong TGPhotoEditorController *strongSelf = weakSelf;
-                if (strongSelf != nil)
-                {
-                    __strong TGPhotoEditorItemController *strongEnhanceController = weakEnhanceController;
-                    if (strongEnhanceController != nil)
-                    {
-                        if (isInitialAppearance)
-                        {
-                            strongSelf->_portraitToolbarView.hidden = true;
-                            strongSelf->_landscapeToolbarView.hidden = true;
-                        }
-                        [(TGPhotoToolsController *)strongSelf->_currentTabController prepareForCombinedAppearance];
-                        [strongSelf.view addSubview:strongEnhanceController.view];
-                        
-                        [strongEnhanceController prepareForCombinedAppearance];
-                        
-                        CGSize referenceSize = [strongSelf referenceViewSize];
-                        strongEnhanceController.view.frame = CGRectMake(0, 0, referenceSize.width, referenceSize.height);
-                        
-                        strongEnhanceController.view.clipsToBounds = true;
-                    }
-                }
                 
                 return transitionReferenceView;
             };
@@ -1223,17 +1086,6 @@
                 if (isInitialAppearance && strongSelf.finishedTransitionIn != nil)
                     strongSelf.finishedTransitionIn();
                 
-                __strong TGPhotoEditorItemController *strongEnhanceController = weakEnhanceController;
-                if (strongEnhanceController != nil)
-                {
-                    [strongEnhanceController attachPreviewView:strongSelf->_previewView];
-                    
-                    strongSelf->_portraitToolbarView.hidden = false;
-                    strongSelf->_landscapeToolbarView.hidden = false;
-                    [(TGPhotoToolsController *)strongSelf->_currentTabController finishedCombinedAppearance];
-                    [strongEnhanceController finishedCombinedAppearance];
-                }
-                
                 strongSelf->_switchingTab = false;
             };
             
@@ -1241,16 +1093,49 @@
         }
             break;
             
-        default:
+        case TGPhotoEditorQualityTab:
         {
+            _ignoreDefaultPreviewViewTransitionIn = true;
+            
+            TGPhotoQualityController *qualityController = [[TGPhotoQualityController alloc] initWithPhotoEditor:_photoEditor previewView:_previewView];
+            qualityController.item = _item;
+            qualityController.toolbarLandscapeSize = TGPhotoEditorToolbarSize;
+            qualityController.beginTransitionIn = ^UIView *(CGRect *referenceFrame, UIView **parentView, bool *noTransitionView)
+            {
+                *referenceFrame = transitionReferenceFrame;
+                *parentView = transitionParentView;
+                *noTransitionView = transitionNoTransitionView;
+                
+                return transitionReferenceView;
+            };
+            qualityController.finishedTransitionIn = ^
+            {
+                __strong TGPhotoEditorController *strongSelf = weakSelf;
+                if (strongSelf == nil)
+                    return;
+                
+                if (isInitialAppearance && strongSelf.finishedTransitionIn != nil)
+                    strongSelf.finishedTransitionIn();
+                
+                strongSelf->_switchingTab = false;
+                strongSelf->_ignoreDefaultPreviewViewTransitionIn = false;
+            };
 
+            controller = qualityController;
         }
+            break;
+            
+        default:
             break;
     }
     
     _currentTabController = controller;
+    _currentTabController.item = _item;
     _currentTabController.intent = _intent;
     _currentTabController.initialAppearance = isInitialAppearance;
+    
+    if (![_currentTabController isKindOfClass:[TGPhotoPaintController class]])
+        _currentTabController.availableTabs = _availableTabs;
     
     if ([self presentedForAvatarCreation] && self.navigationController == nil)
         _currentTabController.transitionSpeed = 20.0f;
@@ -1302,21 +1187,49 @@
             [strongSelf->_landscapeToolbarView transitionInAnimated:true];
         }
     };
+    _currentTabController.valuesChanged = ^
+    {
+        __strong TGPhotoEditorController *strongSelf = weakSelf;
+        if (strongSelf != nil)
+            [strongSelf updatePreviewView];        
+    };
+    _currentTabController.tabsChanged = ^
+    {
+        __strong TGPhotoEditorController *strongSelf = weakSelf;
+        if (strongSelf != nil)
+            [strongSelf updateEditorButtons];
+    };
     
     _currentTab = tab;
     
-    [_portraitToolbarView setActiveTab:tab];
-    [_landscapeToolbarView setActiveTab:tab];
+    [_portraitToolbarView setToolbarTabs:[_currentTabController availableTabs] animated:true];
+    [_landscapeToolbarView setToolbarTabs:[_currentTabController availableTabs] animated:true];
+    
+    [self updateEditorButtons];
 }
 
-- (void)updateEditorButtonsWithAdjustments:(id<TGMediaEditAdjustments>)adjustments
+- (void)updatePreviewView
 {
-    TGPhotoEditorTab highlightedButtons = [TGPhotoEditorTabController highlightedButtonsForEditorValues:adjustments forAvatar:[self presentedForAvatarCreation] hasCaption:(_caption.length > 0)];
-    [_portraitToolbarView setEditButtonsHighlighted:highlightedButtons];
-    [_landscapeToolbarView setEditButtonsHighlighted:highlightedButtons];
+    [_previewView setPaintingImageWithData:_photoEditor.paintingData];
+    [_previewView setCropRect:_photoEditor.cropRect cropOrientation:_photoEditor.cropOrientation cropRotation:_photoEditor.cropRotation cropMirrored:_photoEditor.cropMirrored originalSize:_photoEditor.originalSize];
 }
 
-- (void)rotateVideoOrReset:(bool)reset
+- (void)updateEditorButtons
+{
+    TGPhotoEditorTab activeTab = TGPhotoEditorNoneTab;
+    activeTab = [_currentTabController activeTab];
+    [_portraitToolbarView setActiveTab:activeTab];
+    [_landscapeToolbarView setActiveTab:activeTab];
+    
+    TGPhotoEditorTab highlightedTabs = TGPhotoEditorNoneTab;
+    highlightedTabs = [_currentTabController highlightedTabs];
+    [_portraitToolbarView setEditButtonsHighlighted:highlightedTabs];
+    [_landscapeToolbarView setEditButtonsHighlighted:highlightedTabs];
+}
+
+#pragma mark - Crop
+
+- (void)reset
 {
     if (_intent != TGPhotoEditorControllerVideoIntent)
         return;
@@ -1324,18 +1237,8 @@
     TGPhotoCropController *cropController = (TGPhotoCropController *)_currentTabController;
     if (![cropController isKindOfClass:[TGPhotoCropController class]])
         return;
-    
-    if (!reset)
-        [cropController rotate];
-    
-    TGVideoEditAdjustments *adjustments = (TGVideoEditAdjustments *)self.requestAdjustments(_item);
-    
-    PGPhotoEditor *editor = _photoEditor;
-    CGRect cropRect = (adjustments != nil) ? adjustments.cropRect : CGRectMake(0, 0, editor.originalSize.width, editor.originalSize.height);
-    TGVideoEditAdjustments *updatedAdjustments = [TGVideoEditAdjustments editAdjustmentsWithOriginalSize:editor.originalSize cropRect:cropRect cropOrientation:reset ? UIImageOrientationUp : cropController.cropOrientation cropLockedAspectRatio:adjustments.cropLockedAspectRatio trimStartValue:adjustments.trimStartValue trimEndValue:adjustments.trimEndValue];
-    
-    [self updateEditorButtonsWithAdjustments:updatedAdjustments];
 }
+#pragma mark -
 
 - (void)dismissAnimated:(bool)animated
 {
@@ -1363,6 +1266,11 @@
 
 - (void)cancelButtonPressed
 {
+    [self dismissEditor];
+}
+
+- (void)dismissEditor
+{
     if (![_currentTabController isDismissAllowed])
         return;
  
@@ -1376,7 +1284,7 @@
         strongSelf.view.userInteractionEnabled = false;
         [strongSelf->_currentTabController prepareTransitionOutSaving:false];
         
-        if (strongSelf.navigationController != nil)
+        if (strongSelf.navigationController != nil && [strongSelf.navigationController.viewControllers containsObject:strongSelf])
         {
             [strongSelf.navigationController popViewControllerAnimated:true];
         }
@@ -1395,33 +1303,53 @@
             strongSelf.didFinishEditing(nil, nil, nil, false);
     };
     
-    PGPhotoEditorValues *editorValues = [_photoEditor exportAdjustments];
+    TGPaintingData *paintingData = nil;
+    if ([_currentTabController isKindOfClass:[TGPhotoPaintController class]])
+        paintingData = [(TGPhotoPaintController *)_currentTabController paintingData];
+    
+    PGPhotoEditorValues *editorValues = paintingData == nil ? [_photoEditor exportAdjustments] : [_photoEditor exportAdjustmentsWithPaintingData:paintingData];
     
     if ((_initialAdjustments == nil && (![editorValues isDefaultValuesForAvatar:[self presentedForAvatarCreation]] || editorValues.cropOrientation != UIImageOrientationUp)) || (_initialAdjustments != nil && ![editorValues isEqual:_initialAdjustments]))
     {
-        NSArray *actions = @[ [[TGActionSheetAction alloc] initWithTitle:TGLocalized(@"PhotoEditor.DiscardChanges") action:@"discard"],
-                              [[TGActionSheetAction alloc] initWithTitle:TGLocalized(@"Common.Cancel") action:@"cancel" type:TGActionSheetActionTypeCancel]];
+        TGMenuSheetController *controller = [[TGMenuSheetController alloc] init];
+        controller.dismissesByOutsideTap = true;
+        controller.narrowInLandscape = true;
+        __weak TGMenuSheetController *weakController = controller;
         
-        TGActionSheet *actionSheet = [[TGActionSheet alloc] initWithTitle:nil actions:actions actionBlock:^(id __unused target, NSString *action)
-        {
-            if ([action isEqualToString:@"discard"])
-                dismiss();
-        } target:self];
+        NSArray *items = @
+        [
+            [[TGMenuSheetButtonItemView alloc] initWithTitle:TGLocalized(@"PhotoEditor.DiscardChanges") type:TGMenuSheetButtonTypeDefault action:^
+            {
+                __strong TGMenuSheetController *strongController = weakController;
+                if (strongController == nil)
+                    return;
+                
+                [strongController dismissAnimated:true manual:false completion:^
+                {
+                    dismiss();
+                }];
+            }],
+            [[TGMenuSheetButtonItemView alloc] initWithTitle:TGLocalized(@"Common.Cancel") type:TGMenuSheetButtonTypeCancel action:^
+            {
+                __strong TGMenuSheetController *strongController = weakController;
+                if (strongController != nil)
+                    [strongController dismissAnimated:true];
+            }]
+        ];
         
-        if ([UIDevice currentDevice].userInterfaceIdiom == UIUserInterfaceIdiomPad)
+        [controller setItemViews:items];
+        controller.sourceRect = ^
         {
-            CGRect rect = CGRectZero;
-            if (UIInterfaceOrientationIsPortrait(self.interfaceOrientation))
-                rect = [self.view convertRect:_portraitToolbarView.cancelButtonFrame fromView:_portraitToolbarView];
-            else
-                rect = [self.view convertRect:_landscapeToolbarView.cancelButtonFrame fromView:_landscapeToolbarView];
+            __strong TGPhotoEditorController *strongSelf = weakSelf;
+            if (strongSelf == nil)
+                return CGRectZero;
             
-            [actionSheet showFromRect:rect inView:self.view animated:true];
-        }
-        else
-        {
-            [actionSheet showInView:self.view];
-        }
+            if (UIInterfaceOrientationIsPortrait(self.interfaceOrientation))
+                return [strongSelf.view convertRect:strongSelf->_portraitToolbarView.cancelButtonFrame fromView:strongSelf->_portraitToolbarView];
+            else
+                return [strongSelf.view convertRect:strongSelf->_landscapeToolbarView.cancelButtonFrame fromView:strongSelf->_landscapeToolbarView];
+        };
+        [controller presentInViewController:self sourceView:self.view animated:true];
     }
     else
     {
@@ -1431,25 +1359,47 @@
 
 - (void)doneButtonPressed
 {
+    [self applyEditor];
+}
+
+- (void)applyEditor
+{
     if (![_currentTabController isDismissAllowed])
         return;
     
     self.view.userInteractionEnabled = false;
     [_currentTabController prepareTransitionOutSaving:true];
     
+    TGPaintingData *paintingData = _photoEditor.paintingData;
+    bool saving = true;
+    if ([_currentTabController isKindOfClass:[TGPhotoPaintController class]])
+    {
+        TGPhotoPaintController *paintController = (TGPhotoPaintController *)_currentTabController;
+        paintingData = [paintController paintingData];
+        
+        _photoEditor.paintingData = paintingData;
+        
+        if (paintingData != nil)
+            [TGPaintingData storePaintingData:paintingData inContext:_editingContext forItem:_item forVideo:(_intent == TGPhotoEditorControllerVideoIntent)];
+    }
+    else if ([_currentTabController isKindOfClass:[TGPhotoQualityController class]])
+    {
+        TGPhotoQualityController *qualityController = (TGPhotoQualityController *)_currentTabController;
+        _photoEditor.preset = qualityController.preset;
+        saving = false;
+        
+        [[NSUserDefaults standardUserDefaults] setObject:@(qualityController.preset) forKey:@"TG_preferredVideoPreset_v0"];
+    }
+    
     if (_intent != TGPhotoEditorControllerVideoIntent)
     {
-        TGProgressWindow *progressWindow = nil;
-        if (![_currentTabController isKindOfClass:[TGPhotoCaptionController class]])
-        {
-            progressWindow = [[TGProgressWindow alloc] init];
-            progressWindow.windowLevel = self.view.window.windowLevel + 0.001f;
-            [progressWindow performSelector:@selector(showAnimated) withObject:nil afterDelay:0.5];
-        }
+        TGProgressWindow *progressWindow = [[TGProgressWindow alloc] init];
+        progressWindow.windowLevel = self.view.window.windowLevel + 0.001f;
+        [progressWindow performSelector:@selector(showAnimated) withObject:nil afterDelay:0.5];
         
         bool forAvatar = [self presentedForAvatarCreation];
-        PGPhotoEditorValues *editorValues = [_photoEditor exportAdjustments];
-        [self createEditedImageWithEditorValues:editorValues createThumbnail:!forAvatar showProgress:(progressWindow == nil) saveOnly:false completion:^(__unused UIImage *image)
+        PGPhotoEditorValues *editorValues = [_photoEditor exportAdjustmentsWithPaintingData:paintingData];
+        [self createEditedImageWithEditorValues:editorValues createThumbnail:!forAvatar saveOnly:false completion:^(__unused UIImage *image)
         {
             [NSObject cancelPreviousPerformRequestsWithTarget:progressWindow selector:@selector(showAnimated) object:nil];
             [progressWindow dismiss:true];
@@ -1465,9 +1415,58 @@
     }
     else
     {
-        TGVideoEditAdjustments *adjustments = [_photoEditor exportAdjustments];
+        TGVideoEditAdjustments *adjustments = [_photoEditor exportAdjustmentsWithPaintingData:paintingData];
+        bool hasChanges = !(_initialAdjustments == nil && [adjustments isDefaultValuesForAvatar:false] && adjustments.cropOrientation == UIImageOrientationUp);
         
-        bool hasChanges = !([adjustments isEqual:_initialAdjustments] || (_initialAdjustments == nil && [adjustments isDefaultValuesForAvatar:false] && adjustments.cropOrientation == UIImageOrientationUp));
+        if (adjustments.paintingData != nil || adjustments.hasPainting != _initialAdjustments.hasPainting)
+        {
+            [[SQueue concurrentDefaultQueue] dispatch:^
+            {
+                id<TGMediaEditableItem> item = _item;
+                SSignal *assetSignal = [item isKindOfClass:[TGMediaAsset class]] ? [TGMediaAssetImageSignals avAssetForVideoAsset:(TGMediaAsset *)item] : [SSignal single:((AVAsset *)item)];
+                
+                [assetSignal startWithNext:^(AVAsset *asset)
+                {
+                    CGSize videoDimensions = CGSizeZero;
+                    if ([item isKindOfClass:[TGMediaAsset class]])
+                        videoDimensions = ((TGMediaAsset *)item).dimensions;
+                    else if ([asset isKindOfClass:[AVURLAsset class]])
+                        videoDimensions = ((AVURLAsset *)asset).originalSize;
+                    
+                    AVAssetImageGenerator *generator = [[AVAssetImageGenerator alloc] initWithAsset:asset];
+                    generator.appliesPreferredTrackTransform = true;
+                    generator.maximumSize = TGFitSize(videoDimensions, CGSizeMake(1280.0f, 1280.0f));
+                    generator.requestedTimeToleranceAfter = kCMTimeZero;
+                    generator.requestedTimeToleranceBefore = kCMTimeZero;
+                    
+                    CGImageRef imageRef = [generator copyCGImageAtTime:CMTimeMakeWithSeconds(adjustments.trimStartValue, NSEC_PER_SEC) actualTime:nil error:NULL];
+                    UIImage *image = [UIImage imageWithCGImage:imageRef];
+                    CGImageRelease(imageRef);
+                    
+                    CGSize thumbnailSize = TGPhotoThumbnailSizeForCurrentScreen();
+                    thumbnailSize.width = CGCeil(thumbnailSize.width);
+                    thumbnailSize.height = CGCeil(thumbnailSize.height);
+                    
+                    CGSize fillSize = TGScaleToFillSize(videoDimensions, thumbnailSize);
+                    
+                    UIImage *thumbnailImage = nil;
+                    
+                    UIGraphicsBeginImageContextWithOptions(fillSize, true, 0.0f);
+                    CGContextRef context = UIGraphicsGetCurrentContext();
+                    CGContextSetInterpolationQuality(context, kCGInterpolationMedium);
+                    
+                    [image drawInRect:CGRectMake(0, 0, fillSize.width, fillSize.height)];
+                    
+                    if (adjustments.paintingData.image != nil)
+                        [adjustments.paintingData.image drawInRect:CGRectMake(0, 0, fillSize.width, fillSize.height)];
+                    
+                    thumbnailImage = UIGraphicsGetImageFromCurrentImageContext();
+                    UIGraphicsEndImageContext();
+                    
+                    [_editingContext setImage:image thumbnailImage:thumbnailImage forItem:_item synchronous:true];
+                }];
+            }];
+        }
         
         if (self.willFinishEditing != nil)
             self.willFinishEditing(hasChanges ? adjustments : nil, nil, hasChanges);
@@ -1475,7 +1474,7 @@
         if (self.didFinishEditing != nil)
             self.didFinishEditing(hasChanges ? adjustments : nil, nil, nil, hasChanges);
         
-        [self transitionOutSaving:true completion:^
+        [self transitionOutSaving:saving completion:^
         {
             [self dismiss];
         }];
@@ -1494,9 +1493,9 @@
     [self.view addSubview:_menuContainerView];
     
     NSMutableArray *actions = [[NSMutableArray alloc] init];
+    [actions addObject:@{ @"title": @"Save to Camera Roll", @"action": @"save" }];    
     if ([[UIApplication sharedApplication] canOpenURL:[NSURL URLWithString:@"instagram://"]])
         [actions addObject:@{ @"title": @"Share on Instagram", @"action": @"instagram" }];
-    [actions addObject:@{ @"title": @"Save to Camera Roll", @"action": @"save" }];
     
     [_menuContainerView.menuView setButtonsAndActions:actions watcherHandle:_actionHandle];
     [_menuContainerView.menuView sizeToFit];
@@ -1526,8 +1525,13 @@
     progressWindow.windowLevel = self.view.window.windowLevel + 0.001f;
     [progressWindow performSelector:@selector(showAnimated) withObject:nil afterDelay:0.5];
     
-    PGPhotoEditorValues *editorValues = [_photoEditor exportAdjustments];
-    [self createEditedImageWithEditorValues:editorValues createThumbnail:false showProgress:false saveOnly:true completion:^(UIImage *resultImage)
+    TGPaintingData *paintingData = nil;
+    if ([_currentTabController isKindOfClass:[TGPhotoPaintController class]])
+        paintingData = [(TGPhotoPaintController *)_currentTabController paintingData];
+    
+    PGPhotoEditorValues *editorValues = paintingData == nil ? [_photoEditor exportAdjustments] : [_photoEditor exportAdjustmentsWithPaintingData:paintingData];
+    
+    [self createEditedImageWithEditorValues:editorValues createThumbnail:false saveOnly:true completion:^(UIImage *resultImage)
     {
         [[[[TGMediaAssetsLibrary sharedLibrary] saveAssetWithImage:resultImage] deliverOn:[SQueue mainQueue]] startWithNext:nil completed:^
         {
@@ -1543,8 +1547,13 @@
     progressWindow.windowLevel = self.view.window.windowLevel + 0.001f;
     [progressWindow performSelector:@selector(showAnimated) withObject:nil afterDelay:0.5];
     
-    PGPhotoEditorValues *editorValues = [_photoEditor exportAdjustments];
-    [self createEditedImageWithEditorValues:editorValues createThumbnail:false showProgress:false saveOnly:true completion:^(UIImage *resultImage)
+    TGPaintingData *paintingData = nil;
+    if ([_currentTabController isKindOfClass:[TGPhotoPaintController class]])
+        paintingData = [(TGPhotoPaintController *)_currentTabController paintingData];
+    
+    PGPhotoEditorValues *editorValues = paintingData == nil ? [_photoEditor exportAdjustments] : [_photoEditor exportAdjustmentsWithPaintingData:paintingData];
+    
+    [self createEditedImageWithEditorValues:editorValues createThumbnail:false saveOnly:true completion:^(UIImage *resultImage)
     {
         [NSObject cancelPreviousPerformRequestsWithTarget:progressWindow selector:@selector(showAnimated) object:nil];
         [progressWindow dismiss:true];
@@ -1653,7 +1662,7 @@
         {
             [UIView performWithoutAnimation:^
             {
-                _landscapeToolbarView.frame = CGRectMake(screenEdges.left, screenEdges.top, [_landscapeToolbarView landscapeSize], referenceSize.height);
+                _landscapeToolbarView.frame = CGRectMake(screenEdges.left, screenEdges.top, TGPhotoEditorToolbarSize, referenceSize.height);
             }];
         }
             break;
@@ -1662,14 +1671,14 @@
         {
             [UIView performWithoutAnimation:^
             {
-                _landscapeToolbarView.frame = CGRectMake(screenEdges.right - [_landscapeToolbarView landscapeSize], screenEdges.top, [_landscapeToolbarView landscapeSize], referenceSize.height);
+                _landscapeToolbarView.frame = CGRectMake(screenEdges.right - TGPhotoEditorToolbarSize, screenEdges.top, TGPhotoEditorToolbarSize, referenceSize.height);
             }];
         }
             break;
             
         default:
         {
-            _landscapeToolbarView.frame = CGRectMake(_landscapeToolbarView.frame.origin.x, screenEdges.top, [_landscapeToolbarView landscapeSize], referenceSize.height);
+            _landscapeToolbarView.frame = CGRectMake(_landscapeToolbarView.frame.origin.x, screenEdges.top, TGPhotoEditorToolbarSize, referenceSize.height);
         }
             break;
     }
@@ -1696,7 +1705,7 @@
 
 - (CGFloat)toolbarLandscapeSize
 {
-    return _landscapeToolbarView.landscapeSize;
+    return TGPhotoEditorToolbarSize;
 }
 
 - (UIView *)transitionWrapperView
@@ -1743,6 +1752,12 @@
     [_progressView setProgress:value cancelEnabled:false animated:animated];
 }
 
+- (void)setInfoString:(NSString *)string
+{
+    [_portraitToolbarView setInfoString:string];
+    [_landscapeToolbarView setInfoString:string];
+}
+
 + (TGPhotoEditorTab)defaultTabsForAvatarIntent
 {
     static dispatch_once_t onceToken;
@@ -1750,7 +1765,7 @@
     dispatch_once(&onceToken, ^
     {
         if (iosMajorVersion() >= 7)
-            avatarTabs = TGPhotoEditorCropTab | TGPhotoEditorToolsTab;
+            avatarTabs = TGPhotoEditorCropTab | TGPhotoEditorPaintTab | TGPhotoEditorToolsTab;
     });
     return avatarTabs;
 }

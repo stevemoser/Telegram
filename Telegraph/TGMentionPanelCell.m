@@ -57,7 +57,7 @@ NSString *const TGMentionPanelCellKind = @"TGMentionPanelCell";
         self.selectedBackgroundView.backgroundColor = selectionColor;
         
         _avatarView = [[TGLetteredAvatarView alloc] initWithFrame:CGRectMake(0.0f, 0.0f, 32.0f, 32.0f)];
-        [_avatarView setSingleFontSize:14.0f doubleFontSize:14.0f useBoldFont:false];
+        [_avatarView setSingleFontSize:18.0f doubleFontSize:18.0f useBoldFont:false];
         _avatarView.fadeTransition = true;
         [self.contentView addSubview:_avatarView];
         
@@ -84,7 +84,7 @@ NSString *const TGMentionPanelCellKind = @"TGMentionPanelCell";
     _user = user;
     
     _nameLabel.text = user.displayName;
-    _usernameLabel.text = [[NSString alloc] initWithFormat:@"@%@", user.userName];
+    _usernameLabel.text = user.userName.length == 0 ? @"" : [[NSString alloc] initWithFormat:@"@%@", user.userName];
     
     NSString *avatarUrl = user.photoUrlSmall;
     

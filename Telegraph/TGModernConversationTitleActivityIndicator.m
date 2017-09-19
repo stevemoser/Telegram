@@ -7,7 +7,9 @@ typedef enum {
     TGModernConversationTitleActivityIndicatorTypeNone = 0,
     TGModernConversationTitleActivityIndicatorTypeTyping = 1,
     TGModernConversationTitleActivityIndicatorTypeAudioRecording = 2,
-    TGModernConversationTitleActivityIndicatorTypeUploading = 3
+    TGModernConversationTitleActivityIndicatorTypeUploading = 3,
+    TGModernConversationTitleActivityIndicatorTypePlaying = 4,
+    TGModernConversationTitleActivityIndicatorTypeVideoRecording = 5
 } TGModernConversationTitleActivityIndicatorType;
 
 @interface TGModernConversationTitleActivityIndicator ()
@@ -90,6 +92,16 @@ typedef enum {
     }
 }
 
+- (void)setVideoRecording
+{
+    if (_type != TGModernConversationTitleActivityIndicatorTypeVideoRecording)
+    {
+        _type = TGModernConversationTitleActivityIndicatorTypeVideoRecording;
+        [self setNeedsDisplay];
+        [self _beginAnimationWithDuration:0.9 linear:false];
+    }
+}
+
 - (void)setUploading
 {
     if (_type != TGModernConversationTitleActivityIndicatorTypeUploading)
@@ -97,6 +109,16 @@ typedef enum {
         _type = TGModernConversationTitleActivityIndicatorTypeUploading;
         [self setNeedsDisplay];
         [self _beginAnimationWithDuration:1.75 linear:false];
+    }
+}
+
+- (void)setPlaying
+{
+    if (_type != TGModernConversationTitleActivityIndicatorTypePlaying)
+    {
+        _type = TGModernConversationTitleActivityIndicatorTypePlaying;
+        [self setNeedsDisplay];
+        [self _beginAnimationWithDuration:0.9 linear:true];
     }
 }
 
@@ -181,8 +203,6 @@ const CGFloat maxDiameter = 4.5f;
         }
         case TGModernConversationTitleActivityIndicatorTypeAudioRecording:
         {
-            CGContextRef context = UIGraphicsGetCurrentContext();
-            
             CGFloat color[4] = {0.0f, 123.0f / 255.0f, 1.0f, 1.0f};
             CGContextSetStrokeColor(context, color);
             CGContextSetLineCap(context, kCGLineCapRound);
@@ -231,6 +251,26 @@ const CGFloat maxDiameter = 4.5f;
             
             break;
         }
+        case TGModernConversationTitleActivityIndicatorTypeVideoRecording:
+        {
+            UIColor *mainColor = [UIColor colorWithRed:0.0f green:123.0f / 255.0f blue:255.0f / 255.0f alpha:1.0f];
+            
+            CGContextSetFillColorWithColor(context, mainColor.CGColor);
+            
+            CGFloat animValue = _animationValue;
+            if (animValue < 0.5f)
+                animValue /= 0.5f;
+            else
+                animValue = (1 - animValue) / 0.5f;
+            
+            CGFloat alpha = 1.0f - animValue * 0.6;
+            CGFloat radius = 3.5f - animValue * 0.66f;
+            
+            CGContextSetAlpha(context, alpha);
+            CGContextFillEllipseInRect(context, CGRectMake(16.0f - radius, 9.0 - radius, radius * 2.0f, radius * 2.0f));
+            
+            break;
+        }
         case TGModernConversationTitleActivityIndicatorTypeUploading:
         {
             CGFloat leftPadding = 11.0f / 2.0f - 1.0f;
@@ -263,6 +303,55 @@ const CGFloat maxDiameter = 4.5f;
             
             path = [UIBezierPath bezierPathWithRoundedRect:CGRectMake(leftPadding - progressWidth + progress, topPadding, progressWidth, progressHeight) cornerRadius:round];
             [path fillWithBlendMode:kCGBlendModeSourceIn alpha:1.0f];
+            
+            break;
+        }
+        case TGModernConversationTitleActivityIndicatorTypePlaying:
+        {
+            UIColor *mainColor = [UIColor colorWithRed:0.0f green:123.0f / 255.0f blue:255.0f / 255.0f alpha:1.0f];
+        
+            UIColor *dotsColor = [mainColor colorWithAlphaComponent:0.5f];
+            CGContextSetFillColorWithColor(context, dotsColor.CGColor);
+            
+            CGFloat distance = 4.0f;
+            CGFloat x = (self.bounds.size.width - distance * 2) / 2.0f + 4.0f;
+            CGFloat y = self.bounds.size.height / 2.0f + 1.0f;
+            CGFloat radius = 1.0f;
+            
+            CGFloat dotsProgress = ((int)(_animationValue * 100) % 50) / 50.0f;
+            CGFloat dotsX = 1.5f + x - distance * dotsProgress;
+            
+            CGContextFillEllipseInRect(context, CGRectMake(dotsX - radius, y - radius, radius * 2.0f, radius * 2.0f));
+            CGContextFillEllipseInRect(context, CGRectMake(dotsX - radius + distance, y - radius, radius * 2.0f, radius * 2.0f));
+            
+            CGContextSetAlpha(context, dotsProgress);
+            CGContextFillEllipseInRect(context, CGRectMake(dotsX - radius + distance * 2, y - radius, radius * 2.0f, radius * 2.0f));
+            CGContextSetAlpha(context, 1.0f);
+            
+            CGFloat angle = 42.0f * M_PI / 180.0;
+            radius = 3.5f;
+            
+            bool closing = (int)(_animationValue * 4) % 2;
+            CGFloat bite = ((int)(_animationValue * 100.0f) % 25) / 25.0f;
+            if (closing)
+                bite = 1.0f - bite;
+            
+            CGFloat startAngle = [self interpolateFrom:0.0f to:-angle value:bite];
+            CGFloat endAngle = [self interpolateFrom:0.0f to:angle value:bite];
+            
+            if (bite < FLT_EPSILON)
+            {
+                startAngle = M_PI * 2;
+                endAngle = 0;
+            }
+            
+            x = radius + 4.5f;
+            CGContextSetAlpha(context, 1.0f);
+            CGContextSetFillColorWithColor(context, mainColor.CGColor);
+            CGContextBeginPath(context);
+            CGContextMoveToPoint(context, x, y);
+            CGContextAddArc(context, x, y, radius, startAngle, endAngle, true);
+            CGContextFillPath(context);
             
             break;
         }

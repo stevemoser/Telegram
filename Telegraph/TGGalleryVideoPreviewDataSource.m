@@ -304,6 +304,7 @@
             AVAssetImageGenerator *imageGenerator = [[AVAssetImageGenerator alloc] initWithAsset:asset];
             imageGenerator.maximumSize = CGSizeMake(800, 800);
             imageGenerator.appliesPreferredTrackTransform = true;
+            
             NSError *imageError = nil;
             CGImageRef imageRef = [imageGenerator copyCGImageAtTime:CMTimeMake(0, asset.duration.timescale) actualTime:NULL error:&imageError];
             image = [[UIImage alloc] initWithCGImage:imageRef];
@@ -346,7 +347,7 @@
             if (thumbnailSourceImage != nil && !lowQualityThumbnail)
             {
                 NSData *thumbnailSourceData = UIImageJPEGRepresentation(thumbnailSourceImage, 0.8f);
-                [thumbnailSourceData writeToFile:thumbnailPath atomically:false];
+                [thumbnailSourceData writeToFile:thumbnailPath atomically:true];
             }
         }
     }

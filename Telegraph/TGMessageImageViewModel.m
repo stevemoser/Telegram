@@ -30,7 +30,10 @@
     int _viewsValue;
     bool _displayTimestampProgress;
     NSString *_additionalDataString;
+    TGMessageImageViewTimestampPosition _additionalDataPosition;
+    CGPoint _timestampOffset;
     NSTimeInterval _completeDuration;
+    bool _blurless;
 }
 
 @end
@@ -74,13 +77,16 @@
     [super bindViewToContainer:container viewStorage:viewStorage];
 
     [((TGMessageImageViewContainer *)self.boundView).imageView setExpectExtendedEdges:_expectExtendedEdges];
+    [((TGMessageImageViewContainer *)self.boundView).imageView setFlexibleTimestamp:_flexibleTimestamp];
     
     if (!TGStringCompare(self.viewStateIdentifier, self.boundView.viewStateIdentifier))
         [((TGMessageImageViewContainer *)self.boundView).imageView loadUri:_uri withOptions:nil];
 
     [((TGMessageImageViewContainer *)self.boundView).imageView setInlineVideoInsets:_inlineVideoInsets];
     [((TGMessageImageViewContainer *)self.boundView).imageView setInlineVideoSize:_inlineVideoSize];
+    [((TGMessageImageViewContainer *)self.boundView).imageView setInlineVideoCornerRadius:_inlineVideoCornerRadius];
     
+    [((TGMessageImageViewContainer *)self.boundView).imageView setBlurlessOverlay:_blurless];
     [((TGMessageImageViewContainer *)self.boundView).imageView setOverlayDiameter:_overlayDiameter];
     [((TGMessageImageViewContainer *)self.boundView).imageView setOverlayBackgroundColorHint:_overlayBackgroundColorHint];
     [((TGMessageImageViewContainer *)self.boundView).imageView setProgress:_progress animated:false];
@@ -91,6 +97,8 @@
     [((TGMessageImageViewContainer *)self.boundView).imageView setTimestampString:_timestampString signatureString:_signatureString displayCheckmarks:_displayCheckmarks checkmarkValue:_checkmarkValue displayViews:_displayViews viewsValue:_viewsValue animated:false];
     [((TGMessageImageViewContainer *)self.boundView).imageView setDisplayTimestampProgress:_displayTimestampProgress];
     [((TGMessageImageViewContainer *)self.boundView).imageView setAdditionalDataString:_additionalDataString animated:false];
+    [((TGMessageImageViewContainer *)self.boundView).imageView setAdditionalDataPosition:_additionalDataPosition];
+    [((TGMessageImageViewContainer *)self.boundView).imageView setTimestampOffset:_timestampOffset];
     [((TGMessageImageViewContainer *)self.boundView).imageView setIsBroadcast:_isBroadcast];
     [((TGMessageImageViewContainer *)self.boundView).imageView setDetailStrings:_detailStrings detailStringsEdgeInsets:_detailStringsInsets animated:false];
     [((TGMessageImageViewContainer *)self.boundView).imageView setCompletionBlock:_completionBlock];
@@ -151,6 +159,12 @@
     }
 }
 
+- (void)setBlurlessOverlay:(bool)blurless
+{
+    _blurless = blurless;
+    [((TGMessageImageViewContainer *)self.boundView).imageView setBlurlessOverlay:blurless];
+}
+
 - (void)setOverlayType:(int)overlayType
 {
     [self setOverlayType:overlayType animated:false];
@@ -199,6 +213,13 @@
     [((TGMessageImageViewContainer *)self.boundView).imageView setDisplayTimestampProgress:_displayTimestampProgress];
 }
 
+- (void)setTimestampOffset:(CGPoint)timestampOffset
+{
+    _timestampOffset = timestampOffset;
+    
+    [((TGMessageImageViewContainer *)self.boundView).imageView setTimestampOffset:_timestampOffset];
+}
+
 - (void)setAdditionalDataString:(NSString *)additionalDataString
 {
     [self setAdditionalDataString:additionalDataString animated:false];
@@ -209,6 +230,13 @@
     _additionalDataString = additionalDataString;
     
     [((TGMessageImageViewContainer *)self.boundView).imageView setAdditionalDataString:_additionalDataString animated:animated];
+}
+
+- (void)setAdditionalDataPosition:(TGMessageImageViewTimestampPosition)additionalDataPosition
+{
+    _additionalDataPosition = additionalDataPosition;
+    
+    [((TGMessageImageViewContainer *)self.boundView).imageView setAdditionalDataPosition:_additionalDataPosition];
 }
 
 - (void)setIsBroadcast:(bool)isBroadcast
@@ -237,6 +265,19 @@
         TGImageViewOptionKeepCurrentImageAsPlaceholder: @true,
         TGImageViewOptionSynchronous: @(synchronous)
     }];
+}
+
+- (void)setInlineVideoInsets:(UIEdgeInsets)inlineVideoInsets {
+    if (!UIEdgeInsetsEqualToEdgeInsets(_inlineVideoInsets, inlineVideoInsets)) {
+        _inlineVideoInsets = inlineVideoInsets;
+        
+        [((TGMessageImageViewContainer *)self.boundView).imageView setInlineVideoInsets:_inlineVideoInsets];
+    }
+}
+
+- (void)setInlineVideoCornerRadius:(CGFloat)inlineVideoCornerRadius {
+    _inlineVideoCornerRadius = inlineVideoCornerRadius;
+    [((TGMessageImageViewContainer *)self.boundView).imageView setInlineVideoCornerRadius:_inlineVideoCornerRadius];
 }
 
 @end

@@ -23,7 +23,7 @@
     self = [super initWithFrame:frame];
     if (self != nil) {
         _avatarView = [[TGLetteredAvatarView alloc] initWithFrame:CGRectMake(0.0f, 0.0f, 40.0f, 40.0f)];
-        [_avatarView setSingleFontSize:14.0f doubleFontSize:14.0f useBoldFont:false];
+        [_avatarView setSingleFontSize:18.0f doubleFontSize:18.0f useBoldFont:false];
         
         [self.contentView addSubview:_avatarView];
         
@@ -47,7 +47,7 @@
     return self;
 }
 
-- (void)setPeer:(id)peer totalSize:(int32_t)totalSize {
+- (void)setPeer:(id)peer totalSize:(int64_t)totalSize {
     CGSize size = CGSizeMake(40.0f, 40.0f);
     static UIImage *placeholder = nil;
     static dispatch_once_t onceToken;

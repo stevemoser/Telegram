@@ -1,30 +1,20 @@
 #import "TGShareController.h"
 #import "TGShareRecipientController.h"
 
-#import "TGColor.h"
-#import "TGGeometry.h"
-#import "TGScaleImage.h"
+#import <LegacyDatabase/LegacyDatabase.h>
 
-#import "TGChatModel.h"
-#import "TGContactModel.h"
-
-#import "TGShareContextSignal.h"
-#import "TGSendMessageSignals.h"
-#import "TGUploadMediaSignals.h"
 #import "TGShareVideoConverter.h"
 
 #import "TGSharePasscodeView.h"
 #import "TGShareToolbarView.h"
 #import "TGProgressAlert.h"
+#import "TGShareNavigationBar.h"
 
 #import "TGItemProviderSignals.h"
 
-#import "TGUploadedMessageContentText.h"
-#import "TGUploadedMessageContentMedia.h"
-#import "TGSendMessageSignals.h"
-#import "TGShareContactSignals.h"
-#import "TGShareLocationSignals.h"
-#import "TGShareRecentPeersSignals.h"
+#import <LegacyDatabase/LegacyDatabase.h>
+
+#import <LegacyDatabase/TGLegacyDatabase.h>
 
 @interface TGShareController ()
 {
@@ -42,9 +32,10 @@
 
 - (instancetype)init
 {
-    self = [super initWithRootViewController:[[TGShareRecipientController alloc] init]];
+    self = [super initWithNavigationBarClass:[TGShareNavigationBar class] toolbarClass:nil];
     if (self != nil)
     {
+        self.viewControllers = @[ [[TGShareRecipientController alloc] init] ];
         [self.navigationBar setTintColor:TGColorWithHex(0x007ee5)];
     }
     return self;
@@ -66,27 +57,7 @@
 {
     [super loadView];
     
-    __weak TGShareController *weakSelf = self;
-    _toolbarView = [[TGShareToolbarView alloc] initWithFrame:CGRectMake(0, self.view.frame.size.height - 44.0f, self.view.frame.size.width, 44.0f)];
-    _toolbarView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin;
-    _toolbarView.leftPressed = ^
-    {
-        __strong TGShareController *strongSelf = weakSelf;
-        if (strongSelf == nil)
-            return;
-        
-        [strongSelf dismissForCancel:true];
-    };
-    _toolbarView.rightPressed = ^
-    {
-        __strong TGShareController *strongSelf = weakSelf;
-        if (strongSelf == nil)
-            return;
-        
-        if ([strongSelf.viewControllers.lastObject isKindOfClass:[TGShareRecipientController class]])
-            ([(TGShareRecipientController *)strongSelf.viewControllers.lastObject proceed]);
-    };
-    [self.view addSubview:_toolbarView];
+    self.view.alpha = 0.0f;
 }
 
 - (void)viewDidLoad
@@ -158,7 +129,7 @@
             } verify:^(NSString *passcode, void (^result)(bool))
             {
                 result(encryptedShareContext.verifyPassword(passcode));
-            } alertPresentationController:self];
+            } alertPresentationController:self allowTouchId:false]; //encryptedShareContext.allowTouchId];
             
             _passcodeView.frame = self.view.bounds;
             _passcodeView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
@@ -167,6 +138,7 @@
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^
             {
                 [_passcodeView showKeyboard];
+                //[_passcodeView refreshTouchId];
             });
         }
     }
@@ -177,7 +149,7 @@
     }
 }
 
-- (void)sendToPeers:(NSArray *)peers models:(NSArray *)models
+- (void)sendToPeers:(NSArray *)peers models:(NSArray *)models caption:(NSString *)caption
 {
     __weak TGShareController *weakSelf = self;
     
@@ -231,7 +203,7 @@
                     }
                     if (isGif)
                     {
-                        uploadMediaSignal = [TGUploadMediaSignals uploadFileWithContext:strongSelf->_currentShareContext data:data name:fileName == nil ? @"animation.gif" : fileName mimeType:@"image/gif" attributes:@[ [Api48_DocumentAttribute documentAttributeAnimated], [Api48_DocumentAttribute documentAttributeImageSizeWithW:@((int32_t)image.size.width) h:@((int32_t)image.size.height)] ]];
+                        uploadMediaSignal = [TGUploadMediaSignals uploadFileWithContext:strongSelf->_currentShareContext data:data name:fileName == nil ? @"animation.gif" : fileName mimeType:@"image/gif" attributes:@[ [Api70_DocumentAttribute documentAttributeAnimated], [Api70_DocumentAttribute documentAttributeImageSizeWithW:@((int32_t)image.size.width) h:@((int32_t)image.size.height)] ]];
                     }
                     else
                     {
@@ -248,9 +220,8 @@
             }
             else if (description[@"video"] != nil)
             {
-                NSURL *url = description[@"video"];
-                AVURLAsset *asset = [[AVURLAsset alloc] initWithURL:url options:nil];
-                uploadMediaSignal = [[TGShareVideoConverter convertSignalForAVAsset:asset] mapToSignal:^SSignal *(id value)
+                AVURLAsset *asset = description[@"video"];
+                uploadMediaSignal = [[TGShareVideoConverter convertAVAsset:asset] mapToSignal:^SSignal *(id value)
                 {
                     if ([value isKindOfClass:[NSDictionary class]])
                     {
@@ -297,7 +268,7 @@
                 NSString *fileName = url.lastPathComponent;
                 
                 NSTimeInterval duration = [description[@"duration"] doubleValue];
-                bool isVoice = [description[@"isVoice"] boolValue] || duration < 30;
+                bool isVoice = [description[@"isVoice"] boolValue] || (duration > DBL_EPSILON && duration < 30.0);
                 NSString *title = description[@"title"] ? : @"";
                 NSString *artist = description[@"artist"] ? : @"";
                 
@@ -322,7 +293,7 @@
                 }
                 
                 NSMutableArray *attributes = [[NSMutableArray alloc] init];
-                [attributes addObject:[Api48_DocumentAttribute_documentAttributeAudio documentAttributeAudioWithFlags:@(flags) duration:description[@"duration"] title:title performer:artist waveform:waveform]];
+                [attributes addObject:[Api70_DocumentAttribute_documentAttributeAudio documentAttributeAudioWithFlags:@(flags) duration:description[@"duration"] title:title performer:artist waveform:waveform]];
                 
                 uploadMediaSignal = [TGUploadMediaSignals uploadFileWithContext:strongSelf->_currentShareContext data:audioData name:fileName mimeType:description[@"mimeType"] attributes:attributes];
             }
@@ -354,7 +325,7 @@
                 if (strongSelf == nil)
                     return [SSignal fail:nil];
                 
-                if ([next isKindOfClass:[Api48_InputMedia class]])
+                if ([next isKindOfClass:[Api70_InputMedia class]])
                 {
                     return [SSignal single:[[TGUploadedMessageContentMedia alloc] initWithInputMedia:next]];
                 }
@@ -398,6 +369,11 @@
                 [peerVal getValue:&peerId];
                 
                 [TGShareRecentPeersSignals addRecentPeerResult:peerId];
+                
+                if (caption.length > 0)
+                {
+                    sendMessages = [sendMessages then:[TGSendMessageSignals sendTextMessageWithContext:strongSelf->_currentShareContext peerId:peerId users:models text:caption]];
+                }
                 
                 for (id content in next)
                 {
@@ -486,15 +462,6 @@
 }
 
 #pragma mark -
-
-static int32_t get_bits(uint8_t const *bytes, unsigned int bitOffset, unsigned int numBits)
-{
-    uint8_t const *data = bytes;
-    numBits = (unsigned int)pow(2, numBits) - 1; //this will only work up to 32 bits, of course
-    data += bitOffset / 8;
-    bitOffset %= 8;
-    return (*((int*)data) >> bitOffset) & numBits;
-}
 
 static void set_bits(uint8_t *bytes, int32_t bitOffset, int32_t numBits, int32_t value) {
     numBits = (unsigned int)pow(2, numBits) - 1; //this will only work up to 32 bits, of course
@@ -691,13 +658,11 @@ static void set_bits(uint8_t *bytes, int32_t bitOffset, int32_t numBits, int32_t
 
 - (void)animateAppearance
 {
+    self.view.alpha = 1.0f;
     [UIView animateWithDuration:0.3 delay:0.0 options:(7 << 16 | UIViewAnimationOptionAllowAnimatedContent) animations:^
     {
         self.view.center = CGPointMake(self.view.center.x, self.view.frame.size.height / 2);
-    } completion:^(BOOL finished)
-    {
-        
-    }];
+    } completion:nil];
 }
 
 - (void)animateDismissalWithCompletion:(void (^)(void))completion

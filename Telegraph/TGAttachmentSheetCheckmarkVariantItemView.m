@@ -8,6 +8,7 @@
 @interface TGAttachmentSheetCheckmarkVariantItemView () {
     TGModernButton *_button;
     UIImageView *_checkmarkView;
+    UIImageView *_iconView;
     UILabel *_titleLabel;
     UILabel *_variantLabel;
     bool _checked;
@@ -18,6 +19,10 @@
 @implementation TGAttachmentSheetCheckmarkVariantItemView
 
 - (instancetype)initWithTitle:(NSString *)title variant:(NSString *)variant checked:(bool)checked {
+    return [self initWithTitle:title variant:variant checked:checked image:nil];
+}
+
+- (instancetype)initWithTitle:(NSString *)title variant:(NSString *)variant checked:(bool)checked image:(UIImage *)image {
     self = [super init];
     if (self != nil) {
         _button = [[TGModernButton alloc] init];
@@ -27,6 +32,11 @@
         _button.stretchHighlightImage = true;
         _button.highlighted = false;
         [self addSubview:_button];
+        
+        if (image != nil) {
+            _iconView = [[UIImageView alloc] initWithImage:image];
+            [self addSubview:_iconView];
+        }
         
         _titleLabel = [[UILabel alloc] init];
         _titleLabel.backgroundColor = [UIColor clearColor];
@@ -73,18 +83,38 @@
     variantSize.height = CGCeil(variantSize.height);
     _variantLabel.frame = CGRectMake(self.bounds.size.width - variantSize.width - 10.0f, CGFloor((self.bounds.size.height - variantSize.height) / 2.0f), variantSize.width, variantSize.height);
     
+    CGFloat titleOffset = 52.0f;
+    if (_disableInsetIfNotChecked && !_checked) {
+        titleOffset = 12.0f;
+    }
+    
+    CGFloat imageWidth = 0.0f;
+    if (_iconView != nil) {
+        imageWidth = _iconView.frame.size.width + 8.0f;
+        _iconView.frame = CGRectMake(titleOffset, CGFloor((self.bounds.size.height - _iconView.frame.size.height) / 2.0f), _iconView.frame.size.width, _iconView.frame.size.height);
+        titleOffset += imageWidth;
+    }
+    
     CGSize titleSize = [_titleLabel.text sizeWithFont:_titleLabel.font];
-    titleSize.width = MIN(CGRectGetMinX(_variantLabel.frame) - 10.0f - 52.0f, CGCeil(titleSize.width));
+    titleSize.width = MIN(CGRectGetMinX(_variantLabel.frame) - 10.0f - titleOffset, CGCeil(titleSize.width));
     titleSize.height = CGCeil(titleSize.height);
-    _titleLabel.frame = CGRectMake(52.0f, CGFloor((self.bounds.size.height - titleSize.height) / 2.0f), titleSize.width, titleSize.height);
+    _titleLabel.frame = CGRectMake(titleOffset, CGFloor((self.bounds.size.height - titleSize.height) / 2.0f), titleSize.width, titleSize.height);
 }
 
 - (void)_buttonPressed {
-    _checked = !_checked;
-    _checkmarkView.hidden = !_checked;
+    if (!_disableAutoCheck) {
+        _checked = !_checked;
+        _checkmarkView.hidden = !_checked;
     
-    if (_onCheckedChanged) {
-        _onCheckedChanged(_checked);
+        if (_onCheckedChanged) {
+            _onCheckedChanged(_checked);
+        }
+    } else {
+        if (!_checked) {
+            if (_onCheckedChanged) {
+                _onCheckedChanged(!_checked);
+            }
+        }
     }
 }
 

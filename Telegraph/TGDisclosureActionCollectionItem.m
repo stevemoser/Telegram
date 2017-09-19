@@ -42,13 +42,19 @@
     
     [view setTitle:_title];
     [view setIcon:_icon];
+    [view setBadge:_badge];
+    [view setHideArrow:_hideArrow];
+}
+
+- (void)unbindView {
+    [super unbindView];
 }
 
 - (void)setTitle:(NSString *)title
 {
     _title = title;
     
-    if (self.view != nil)
+    if (self.boundView != nil)
         [(TGDisclosureActionCollectionItemView *)self.view setTitle:title];
 }
 
@@ -56,8 +62,15 @@
 {
     _icon = icon;
     
-    if (self.view != nil)
+    if (self.boundView != nil)
         [(TGDisclosureActionCollectionItemView *)self.view setIcon:icon];
+}
+
+- (void)setBadge:(NSString *)badge {
+    _badge = badge;
+    
+    if (self.boundView != nil)
+        [(TGDisclosureActionCollectionItemView *)self.view setBadge:badge];
 }
 
 @end

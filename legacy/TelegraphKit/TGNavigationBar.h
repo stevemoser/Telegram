@@ -16,6 +16,10 @@
 @property (nonatomic, weak) TGNavigationController *navigationController;
 
 @property (nonatomic, strong) UIView *progressView;
+@property (nonatomic, assign) CGFloat verticalOffset;
+@property (nonatomic, weak) UIView *additionalView;
+
+@property (nonatomic) bool keepAlpha;
 
 - (id)initWithFrame:(CGRect)frame barStyle:(UIBarStyle)barStyle;
 
@@ -24,6 +28,7 @@
 - (bool)shouldAddBackdropBackground;
 - (unsigned int)indexAboveBackdropBackground;
 
+@property (nonatomic, assign) CGFloat musicPlayerOffset;
 @property (nonatomic, strong) TGMusicPlayerView *musicPlayerView;
 @property (nonatomic) bool minimizedMusicPlayer;
 

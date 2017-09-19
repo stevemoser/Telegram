@@ -56,6 +56,7 @@ typedef enum
     CGSize _originalSize;
     CGRect _cropRect;
     UIImageOrientation _cropOrientation;
+    bool _cropMirrored;
     
     bool _zoomedIn;
     bool _preparingToZoomIn;
@@ -71,6 +72,9 @@ typedef enum
     NSInteger _zoomedPivotTimestampIndex;
     NSArray *_zoomedTimestamps;
     NSMutableArray *_zoomedThumbnailViews;
+    
+    UIImageView *_arrowView;
+    UILabel *_recipientLabel;
 }
 @end
 
@@ -225,8 +229,20 @@ typedef enum
             NSTimeInterval trimEndPosition = 0.0;
             [strongSelf _trimStartPosition:&trimStartPosition trimEndPosition:&trimEndPosition forTrimFrame:trimViewRect duration:strongSelf.duration];
             
+            NSTimeInterval duration = trimEndPosition - trimStartPosition;
+            
             if (trimEndPosition - trimStartPosition < TGVideoScrubberMinimumTrimDuration)
                 return;
+            
+            if (strongSelf.maximumLength > DBL_EPSILON && duration > strongSelf.maximumLength)
+            {
+                trimViewRect = CGRectMake(trimView.frame.origin.x + delta,
+                                                 trimView.frame.origin.y,
+                                                 trimView.frame.size.width,
+                                                 trimView.frame.size.height);
+                
+                [strongSelf _trimStartPosition:&trimStartPosition trimEndPosition:&trimEndPosition forTrimFrame:trimViewRect duration:strongSelf.duration];
+            }
             
             trimView.frame = trimViewRect;
             
@@ -276,8 +292,20 @@ typedef enum
             NSTimeInterval trimEndPosition = 0.0;
             [strongSelf _trimStartPosition:&trimStartPosition trimEndPosition:&trimEndPosition forTrimFrame:trimViewRect duration:strongSelf.duration];
             
+            NSTimeInterval duration = trimEndPosition - trimStartPosition;
+            
             if (trimEndPosition - trimStartPosition < TGVideoScrubberMinimumTrimDuration)
                 return;
+            
+            if (strongSelf.maximumLength > DBL_EPSILON && duration > strongSelf.maximumLength)
+            {
+                trimViewRect = CGRectMake(trimView.frame.origin.x + translation.x,
+                                          trimView.frame.origin.y,
+                                          trimView.frame.size.width,
+                                          trimView.frame.size.height);
+                
+                [strongSelf _trimStartPosition:&trimStartPosition trimEndPosition:&trimEndPosition forTrimFrame:trimViewRect duration:strongSelf.duration];
+            }
             
             trimView.frame = trimViewRect;
             
@@ -337,8 +365,31 @@ typedef enum
         _panGestureRecognizer = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePan:)];
         _panGestureRecognizer.delegate = self;
         [_scrubberHandle addGestureRecognizer:_panGestureRecognizer];
+        
+        _arrowView = [[UIImageView alloc] initWithImage:[UIImage imageNamed:@"PhotoPickerArrow"]];
+        _arrowView.alpha = 0.45f;
+        _arrowView.hidden = true;
+        [self addSubview:_arrowView];
+        
+        _recipientLabel = [[UILabel alloc] init];
+        _recipientLabel.backgroundColor = [UIColor clearColor];
+        _recipientLabel.font = TGBoldSystemFontOfSize(13.0f);
+        _recipientLabel.textColor = UIColorRGBA(0xffffff, 0.45f);
+        _recipientLabel.hidden = true;
+        [self addSubview:_recipientLabel];
     }
     return self;
+}
+
+- (void)setRecipientName:(NSString *)recipientName
+{
+    _recipientLabel.text = recipientName;
+    _recipientLabel.hidden = recipientName.length == 0;
+    _arrowView.hidden = _recipientLabel.hidden;
+    
+    [_recipientLabel sizeToFit];
+    
+    [self _layoutRecipientLabel];
 }
 
 - (bool)zoomAvailable
@@ -428,7 +479,8 @@ typedef enum
 
 - (CGFloat)_zoomPivotCenterForHandle
 {
-    CGFloat fractValue = (CGFloat)_value / (CGFloat)_duration * 2 - 1;
+    CGFloat duration = MAX(0.0001, _duration);
+    CGFloat fractValue = (CGFloat)_value / duration * 2 - 1;
     return _scrubberHandle.center.x - [self _scrubbingRectZoomedIn:false].origin.x + fractValue * _scrubberHandle.frame.size.width / 2;
 }
 
@@ -448,6 +500,9 @@ typedef enum
     if (!_preparingToZoomIn)
         return;
     
+    if (_summaryThumbnailViews.count == 0)
+        return;
+    
     _zoomedIn = true;
     _preparingToZoomIn = false;
     _animatingZoomIn = true;
@@ -459,7 +514,8 @@ typedef enum
     CGRect normalScrubbingRect = [self _scrubbingRectZoomedIn:false];
     CGRect zoomedScrubbingRect = [self _scrubbingRectZoomedIn:true];
     
-    CGFloat zoomedPivotPosition = (zoomedScrubbingRect.size.width - [self _thumbnailSize].width) * (CGFloat)pivotTimestamp / (CGFloat)_duration;
+    CGFloat duration = MAX(0.0001, _duration);
+    CGFloat zoomedPivotPosition = (zoomedScrubbingRect.size.width - [self _thumbnailSize].width) * (CGFloat)pivotTimestamp / (CGFloat)duration;
     _zoomPivotOffset = zoomedPivotPosition - normalPivotFrame.origin.x + zoomedScrubbingRect.origin.x - normalScrubbingRect.origin.x;
     
     _summaryThumbnailWrapperView.clipsToBounds = false;
@@ -533,8 +589,8 @@ typedef enum
     
     _summaryThumbnailViews = [[NSMutableArray alloc] init];
     
-    if ([dataSource respondsToSelector:@selector(videoScrubberOriginalSize:cropRect:cropOrientation:)])
-        _originalSize = [dataSource videoScrubberOriginalSize:self cropRect:&_cropRect cropOrientation:&_cropOrientation];
+    if ([dataSource respondsToSelector:@selector(videoScrubberOriginalSize:cropRect:cropOrientation:cropMirrored:)])
+        _originalSize = [dataSource videoScrubberOriginalSize:self cropRect:&_cropRect cropOrientation:&_cropOrientation cropMirrored:&_cropMirrored];
     
     CGFloat originalAspectRatio = 1.0f;
     CGFloat frameAspectRatio = 1.0f;
@@ -624,7 +680,7 @@ typedef enum
 
 - (void)setThumbnailImage:(UIImage *)image forTimestamp:(NSTimeInterval)__unused timestamp isSummaryThubmnail:(bool)isSummaryThumbnail
 {
-    TGMediaPickerGalleryVideoScrubberThumbnailView *thumbnailView = [[TGMediaPickerGalleryVideoScrubberThumbnailView alloc] initWithImage:image originalSize:_originalSize cropRect:_cropRect cropOrientation:_cropOrientation];
+    TGMediaPickerGalleryVideoScrubberThumbnailView *thumbnailView = [[TGMediaPickerGalleryVideoScrubberThumbnailView alloc] initWithImage:image originalSize:_originalSize cropRect:_cropRect cropOrientation:_cropOrientation cropMirrored:_cropMirrored];
     
     if (isSummaryThumbnail)
     {
@@ -821,11 +877,11 @@ typedef enum
     
     if (_trimStartValue > DBL_EPSILON && fabs(_value - _trimStartValue) < 0.01)
     {
-        frame = CGRectMake(_trimView.frame.origin.x + [self _scrubbingRect].origin.x, _scrubberHandle.frame.origin.y, _scrubberHandle.frame.size.width, _scrubberHandle.frame.size.height);
+        frame = CGRectMake(_trimView.frame.origin.x + [self _scrubbingRectZoomedIn:zoomedIn].origin.x, _scrubberHandle.frame.origin.y, _scrubberHandle.frame.size.width, _scrubberHandle.frame.size.height);
     }
     else if (fabs(_value - _trimEndValue) < 0.01)
     {
-        frame = CGRectMake(_trimView.frame.origin.x + _trimView.frame.size.width - [self _scrubbingRect].origin.x - _scrubberHandle.frame.size.width, _scrubberHandle.frame.origin.y, _scrubberHandle.frame.size.width, _scrubberHandle.frame.size.height);
+        frame = CGRectMake(_trimView.frame.origin.x + _trimView.frame.size.width - [self _scrubbingRectZoomedIn:zoomedIn].origin.x - _scrubberHandle.frame.size.width, _scrubberHandle.frame.origin.y, _scrubberHandle.frame.size.width, _scrubberHandle.frame.size.height);
     }
     
     if (_isPlaying)
@@ -1229,6 +1285,18 @@ typedef enum
     }
 }
 
+- (void)_layoutRecipientLabel
+{
+    if (self.frame.size.width < FLT_EPSILON)
+        return;
+    
+    CGFloat screenWidth = MAX(self.frame.size.width, self.frame.size.height);
+    CGFloat recipientWidth = MIN(_recipientLabel.frame.size.width, screenWidth - 100.0f);
+    
+    _arrowView.frame = CGRectMake(48.0f, 6.0f, _arrowView.frame.size.width, _arrowView.frame.size.height);
+    _recipientLabel.frame = CGRectMake(CGRectGetMaxX(_arrowView.frame) + 6.0f, _arrowView.frame.origin.y - 2.0f, recipientWidth, _recipientLabel.frame.size.height);
+}
+
 #pragma mark - Layout
 
 - (void)layoutSubviews
@@ -1241,6 +1309,8 @@ typedef enum
     _zoomedThumbnailWrapperView.frame = _summaryThumbnailWrapperView.frame;
     
     [self _updateScrubberAnimationsAndResetCurrentPosition:true];
+    
+    [self _layoutRecipientLabel];
 }
 
 + (NSString *)_stringFromTotalSeconds:(NSInteger)totalSeconds

@@ -20,6 +20,37 @@
     return value;
 }
 
+- (BOOL)isEqual:(id)object
+{
+    if (object == self)
+        return true;
+    
+    if (!object || ![object isKindOfClass:[self class]])
+        return false;
+    
+    PGBlurToolValue *value = (PGBlurToolValue *)object;
+    
+    if (value.type != self.type)
+        return false;
+    
+    if (!CGPointEqualToPoint(value.point, self.point))
+        return false;
+    
+    if (value.size != self.size)
+        return false;
+    
+    if (value.falloff != self.falloff)
+        return false;
+    
+    if (value.angle != self.angle)
+        return false;
+    
+    if (value.intensity != self.intensity)
+        return false;
+    
+    return true;
+}
+
 @end
 
 @implementation PGBlurTool
@@ -67,7 +98,12 @@
     return [UIImage imageNamed:@"PhotoEditorBlurTool"];
 }
 
-- (UIView <TGPhotoEditorToolView> *)itemControlViewWithChangeBlock:(void (^)(id, bool))changeBlock
+- (UIView <TGPhotoEditorToolView> *)itemControlViewWithChangeBlock:(void (^)(id newValue, bool animated))changeBlock
+{
+    return [self itemControlViewWithChangeBlock:changeBlock explicit:false nameWidth:0.0f];
+}
+
+- (UIView <TGPhotoEditorToolView> *)itemControlViewWithChangeBlock:(void (^)(id, bool))changeBlock explicit:(bool)explicit nameWidth:(CGFloat)__unused nameWidth
 {
     __weak PGBlurTool *weakSelf = self;
     
@@ -78,10 +114,16 @@
         if (strongSelf == nil)
             return;
         
-        if ([strongSelf.tempValue isEqual:newValue])
+        if (!explicit && [strongSelf.tempValue isEqual:newValue])
             return;
         
-        strongSelf.tempValue = newValue;
+        if (explicit && [strongSelf.value isEqual:newValue])
+            return;
+        
+        if (!explicit)
+            strongSelf.tempValue = newValue;
+        else
+            strongSelf.value = newValue;
         
         if (changeBlock != nil)
             changeBlock(newValue, animated);
@@ -89,7 +131,7 @@
     return view;
 }
 
-- (UIView <TGPhotoEditorToolView> *)itemAreaViewWithChangeBlock:(void (^)(id))changeBlock
+- (UIView <TGPhotoEditorToolView> *)itemAreaViewWithChangeBlock:(void (^)(id))changeBlock explicit:(bool)explicit
 {
     __weak PGBlurTool *weakSelf = self;
     
@@ -102,10 +144,16 @@
         
         if (newValue != nil)
         {
-            if ([strongSelf.tempValue isEqual:newValue])
+            if (!explicit && [strongSelf.tempValue isEqual:newValue])
                 return;
             
-            strongSelf.tempValue = newValue;
+            if (explicit && [strongSelf.value isEqual:newValue])
+                return;
+            
+            if (!explicit)
+                strongSelf.tempValue = newValue;
+            else
+                strongSelf.value = newValue;
         }
         
         if (changeBlock != nil)
@@ -163,6 +211,11 @@
     }
     
     return nil;
+}
+
+- (bool)isSimple
+{
+    return false;
 }
 
 @end

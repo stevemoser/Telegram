@@ -20,7 +20,7 @@
     return 0;
 }
 
-- (id<TLObject>)TLbuildFromMetaObject:(std::tr1::shared_ptr<TLMetaObject>)__unused metaObject
+- (id<TLObject>)TLbuildFromMetaObject:(std::shared_ptr<TLMetaObject>)__unused metaObject
 {
     TGLog(@"TLbuildFromMetaObject is not implemented for base type");
     return nil;
@@ -47,7 +47,7 @@
     return (int32_t)0x1f0e5347;
 }
 
-- (id<TLObject>)TLbuildFromMetaObject:(std::tr1::shared_ptr<TLMetaObject>)metaObject
+- (id<TLObject>)TLbuildFromMetaObject:(std::shared_ptr<TLMetaObject>)metaObject
 {
     TLDocument$documentEmpty *object = [[TLDocument$documentEmpty alloc] init];
     object.n_id = metaObject->getInt64((int32_t)0x7a5601fb);
@@ -72,7 +72,7 @@
 
 - (int32_t)TLconstructorSignature
 {
-    return (int32_t)0xf9a39f4f;
+    return (int32_t)0x87232bc7;
 }
 
 - (int32_t)TLconstructorName
@@ -80,7 +80,7 @@
     return (int32_t)0xf1465b5f;
 }
 
-- (id<TLObject>)TLbuildFromMetaObject:(std::tr1::shared_ptr<TLMetaObject>)metaObject
+- (id<TLObject>)TLbuildFromMetaObject:(std::shared_ptr<TLMetaObject>)metaObject
 {
     TLDocument$document *object = [[TLDocument$document alloc] init];
     object.n_id = metaObject->getInt64((int32_t)0x7a5601fb);
@@ -90,6 +90,7 @@
     object.size = metaObject->getInt32((int32_t)0x5a228f5e);
     object.thumb = metaObject->getObject((int32_t)0x712c4d9);
     object.dc_id = metaObject->getInt32((int32_t)0xae973dc4);
+    object.version = metaObject->getInt32((int32_t)0x4ea810e9);
     object.attributes = metaObject->getArray((int32_t)0xb339a07a);
     return object;
 }
@@ -137,6 +138,12 @@
         value.type = TLConstructedValueTypePrimitiveInt32;
         value.primitive.int32Value = self.dc_id;
         values->insert(std::pair<int32_t, TLConstructedValue>((int32_t)0xae973dc4, value));
+    }
+    {
+        TLConstructedValue value;
+        value.type = TLConstructedValueTypePrimitiveInt32;
+        value.primitive.int32Value = self.version;
+        values->insert(std::pair<int32_t, TLConstructedValue>((int32_t)0x4ea810e9, value));
     }
     {
         TLConstructedValue value;

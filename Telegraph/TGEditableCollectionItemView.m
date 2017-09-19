@@ -83,6 +83,11 @@ static TGCollectionMenuView *_findCollectionMenuView(UIView *baseView)
     return _findCollectionMenuView(self.superview);
 }
 
+- (void)setDisableControls:(bool)disableControls {
+    _disableControls = disableControls;
+    _editingScrollView.userInteractionEnabled = !disableControls;
+}
+
 - (void)reorderSelfToFront
 {
     int index = -1;
@@ -277,7 +282,7 @@ static TGCollectionMenuView *_findCollectionMenuView(UIView *baseView)
     
     CGRect bounds = self.bounds;
     
-    CGFloat separatorHeight = TGIsRetina() ? 0.5f : 1.0f;
+    CGFloat separatorHeight = TGScreenPixel;
     
     _editingScrollView.contentSize = CGSizeMake(bounds.size.width + 82.0f, bounds.size.height + separatorHeight);
     _editingScrollView.frame = CGRectMake(0.0f, 0.0f, bounds.size.width, bounds.size.height + separatorHeight);
@@ -299,10 +304,16 @@ static TGCollectionMenuView *_findCollectionMenuView(UIView *baseView)
 {
     if (recognizer.state == UIGestureRecognizerStateRecognized)
     {
-        [self actionButton];
-        [self _layoutActionButton];
-        
-        [_editingScrollView setOptionsAreRevealed:true animated:true];
+        if (_disableControls) {
+            if (_customOpenControls) {
+                _customOpenControls();
+            }
+        } else {
+            [self actionButton];
+            [self _layoutActionButton];
+            
+            [_editingScrollView setOptionsAreRevealed:true animated:true];
+        }
     }
 }
 
@@ -314,6 +325,16 @@ static TGCollectionMenuView *_findCollectionMenuView(UIView *baseView)
 
 - (void)deleteAction
 {
+}
+
+- (UIView *)hitTestDeleteIndicator:(CGPoint)point {
+    if (_deleteIndicator != nil) {
+        CGPoint converted = [self convertPoint:point toView:_deleteIndicator];
+        if (CGRectContainsPoint(_deleteIndicator.bounds, converted)) {
+            return _deleteIndicator;
+        }
+    }
+    return nil;
 }
 
 @end

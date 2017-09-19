@@ -9,6 +9,11 @@
 
 @implementation TGBingSearchResultItem (TGMediaItem)
 
+- (bool)isVideo
+{
+    return false;
+}
+
 - (NSString *)uniqueIdentifier
 {
     return [TGStringUtils stringByEscapingForURL:self.imageUrl];
@@ -51,9 +56,9 @@
     }];
 }
 
-- (SSignal *)screenImageSignal
+- (SSignal *)screenImageSignal:(NSTimeInterval)position
 {
-    return [[[self originalImageSignal] deliverOn:[SQueue concurrentDefaultQueue]] map:^UIImage *(UIImage *image)
+    return [[self originalImageSignal:position] map:^UIImage *(UIImage *image)
     {
         CGSize maxSize = TGPhotoEditorScreenImageMaxSize();
         CGSize targetSize = TGFitSize(self.originalSize, maxSize);
@@ -61,7 +66,7 @@
     }];
 }
 
-- (SSignal *)originalImageSignal
+- (SSignal *)originalImageSignal:(NSTimeInterval)__unused position
 {
     SSignal *fetchOriginalSignal = [[SSignal alloc] initWithGenerator:^id<SDisposable>(SSubscriber *subscriber)
     {

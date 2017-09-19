@@ -12,6 +12,10 @@
 
 #import "TGAppDelegate.h"
 
+#import "TGLocalization.h"
+
+#import <pthread.h>
+
 int cpuCoreCount()
 {
     static int count = 0;
@@ -102,8 +106,14 @@ int iosMajorVersion()
             case 9:
                 version = 9;
                 break;
+            case 10:
+                version = 10;
+                break;
+            case 11:
+                version = 11;
+                break;
             default:
-                version = 8;
+                version = 9;
                 break;
         }
         
@@ -199,62 +209,173 @@ NSString *TGStringMD5(NSString *string)
 
 int TGLocalizedStaticVersion = 0;
 
-static NSBundle *customLocalizationBundle = nil;
-
-static NSString *customLocalizationBundlePath()
-{
-    return [[TGAppDelegate documentsPath] stringByAppendingPathComponent:@"CustomLocalization.bundle"];
-}
-
-void TGSetLocalizationFromFile(NSString *filePath)
-{
-    TGResetLocalization();
-    
-    [[NSFileManager defaultManager] createDirectoryAtPath:customLocalizationBundlePath() withIntermediateDirectories:true attributes:nil error:nil];
-    
-    NSString *stringsFilePath = [customLocalizationBundlePath() stringByAppendingPathComponent:@"Localizable.strings"];
-    [[NSFileManager defaultManager] removeItemAtPath:stringsFilePath error:nil];
-    
-    if ([[NSFileManager defaultManager] copyItemAtPath:filePath toPath:stringsFilePath error:nil])
-    {
-        NSString *tempPath = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSString alloc] initWithFormat:@"localiation-%d", (int)arc4random()]];
-        [[NSFileManager defaultManager] copyItemAtPath:customLocalizationBundlePath() toPath:tempPath error:nil];
-        customLocalizationBundle = [NSBundle bundleWithPath:tempPath];
+void TGSetLocalizationFromFile(NSString *filePath) {
+    if (filePath != nil) {
+        NSDictionary *dict = [[NSDictionary alloc] initWithContentsOfFile:filePath];
+        if (dict != nil) {
+            setCurrentCustomLocalization([[TGLocalization alloc] initWithVersion:0 code:@"custom" dict:dict isActive:true]);
+        }
     }
 }
 
-bool TGIsCustomLocalizationActive()
-{
-    return customLocalizationBundle != nil;
+static pthread_mutex_t _currentLocalizationMutex = PTHREAD_MUTEX_INITIALIZER;
+static TGLocalization *_safeCurrentNativeLocalization;
+static bool _currentCustomLocalizationInitialized = false;
+static TGLocalization *_safeCurrentCustomLocalization;
+
+static NSString *currentNativeLocalizationPath() {
+    static NSString *path = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        path = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, true)[0] stringByAppendingPathComponent:@"localization"];
+    });
+    return path;
 }
 
-void TGResetLocalization()
-{
-    customLocalizationBundle = nil;
-    [[NSFileManager defaultManager] removeItemAtPath:customLocalizationBundlePath() error:nil];
+static NSString *currentNativeExtensionLocalizationPath() {
+    static NSString *path = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        path = [[TGAppDelegate documentsPath] stringByAppendingPathComponent:@"localization"];
+    });
+    return path;
+}
+
+static NSString *currentCustomLocalizationPath() {
+    static NSString *path = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        path = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, true)[0] stringByAppendingPathComponent:@"localization-custom-active"];
+    });
+    return path;
+}
+
+NSString *currentLocalizationEnglishLanguageName() {
+    if ([currentNativeLocalization().code isEqualToString:@"en"]) {
+        return [currentNativeLocalization() get:@"Localization.EnglishLanguageName"];
+    } else {
+        TGLocalization *localization = [[TGLocalization alloc] initWithVersion:0 code:@"en" dict:@{} isActive:true];
+        return [localization get:@"Localization.EnglishLanguageName"];
+    }
+}
+
+TGLocalization *nativeEnglishLocalization() {
+    if ([currentNativeLocalization().code isEqualToString:@"en"]) {
+        return currentNativeLocalization();
+    } else {
+        TGLocalization *localization = [[TGLocalization alloc] initWithVersion:0 code:@"en" dict:@{} isActive:true];
+        return localization;
+    }
+}
+
+TGLocalization *currentNativeLocalization() {
+    TGLocalization *value = nil;
+    pthread_mutex_lock(&_currentLocalizationMutex);
+    value = _safeCurrentNativeLocalization;
+    pthread_mutex_unlock(&_currentLocalizationMutex);
+    if (value == nil) {
+        NSData *data = [NSData dataWithContentsOfFile:currentNativeLocalizationPath()];
+        if (data != nil) {
+            value = [NSKeyedUnarchiver unarchiveObjectWithData:data];
+        }
+        if (value == nil) {
+            value = [[TGLocalization alloc] initWithVersion:0 code:@"en" dict:@{} isActive:true];
+        }
+        if (value != nil) {
+            pthread_mutex_lock(&_currentLocalizationMutex);
+            _safeCurrentNativeLocalization = value;
+            pthread_mutex_unlock(&_currentLocalizationMutex);
+        }
+    }
+    return value;
+}
+
+static NSString *legacyCustomLocalizationBundlePath() {
+    return [[TGAppDelegate documentsPath] stringByAppendingPathComponent:@"CustomLocalization.bundle"];
+}
+
+TGLocalization *currentCustomLocalization() {
+    TGLocalization *value = nil;
+    bool initialized = false;
+    pthread_mutex_lock(&_currentLocalizationMutex);
+    value = _safeCurrentCustomLocalization;
+    initialized = _currentCustomLocalizationInitialized;
+    pthread_mutex_unlock(&_currentLocalizationMutex);
+    if (!initialized) {
+        NSData *data = [NSData dataWithContentsOfFile:currentCustomLocalizationPath()];
+        if (data != nil) {
+            value = [NSKeyedUnarchiver unarchiveObjectWithData:data];
+        } else {
+            NSBundle *bundle = [NSBundle bundleWithPath:legacyCustomLocalizationBundlePath()];
+            NSString *path = [bundle pathForResource:@"Localizable" ofType:@"strings"];
+            if (path != nil) {
+                NSDictionary *dict = [[NSDictionary alloc] initWithContentsOfFile:path];
+                if (dict != nil) {
+                    [[NSFileManager defaultManager] removeItemAtPath:legacyCustomLocalizationBundlePath() error:nil];
+                    TGLocalization *localization = [[TGLocalization alloc] initWithVersion:0 code:@"custom" dict:dict isActive:true];
+                    setCurrentCustomLocalization(localization);
+                    value = localization;
+                }
+            }
+        }
+        
+        pthread_mutex_lock(&_currentLocalizationMutex);
+        _safeCurrentCustomLocalization = value;
+        _currentCustomLocalizationInitialized = true;
+        pthread_mutex_unlock(&_currentLocalizationMutex);
+    }
+    return value;
+}
+
+TGLocalization *effectiveLocalization() {
+    TGLocalization *custom = currentCustomLocalization();
+    if (custom.isActive) {
+        return custom;
+    }
+    return currentNativeLocalization();
+}
+
+void setCurrentNativeLocalization(TGLocalization *localization, bool switchIfCustom) {
+    pthread_mutex_lock(&_currentLocalizationMutex);
+    _safeCurrentNativeLocalization = localization;
+    pthread_mutex_unlock(&_currentLocalizationMutex);
     
+    [[NSFileManager defaultManager] removeItemAtPath:currentNativeLocalizationPath() error:nil];
+    [[NSFileManager defaultManager] removeItemAtPath:currentNativeExtensionLocalizationPath() error:nil];
+    [NSKeyedArchiver archiveRootObject:localization toFile:currentNativeLocalizationPath()];
+    
+    [[NSFileManager defaultManager] copyItemAtPath:currentNativeLocalizationPath() toPath:currentNativeExtensionLocalizationPath() error:nil];
+    TGLocalizedStaticVersion++;
+    
+    if (switchIfCustom) {
+        setCurrentCustomLocalization([currentCustomLocalization() withUpdatedIsActive:false]);
+    }
+}
+
+void setCurrentCustomLocalization(TGLocalization *localization) {
+    pthread_mutex_lock(&_currentLocalizationMutex);
+    _safeCurrentCustomLocalization = localization;
+    _currentCustomLocalizationInitialized = true;
+    pthread_mutex_unlock(&_currentLocalizationMutex);
+    
+    [[NSFileManager defaultManager] removeItemAtPath:currentCustomLocalizationPath() error:nil];
+    if (localization != nil) {
+        [NSKeyedArchiver archiveRootObject:localization toFile:currentCustomLocalizationPath()];
+    }
     TGLocalizedStaticVersion++;
 }
 
 NSString *TGLocalized(NSString *s)
 {
-    static NSString *untranslatedString = nil;
+    return [effectiveLocalization() get:s];
+    
+    /*static NSString *untranslatedString = nil;
     
     static dispatch_once_t onceToken1;
     dispatch_once(&onceToken1, ^
     {
         untranslatedString = [[NSString alloc] initWithFormat:@"UNTRANSLATED_%x", (int)arc4random()];
-        
-        if ([[NSFileManager defaultManager] fileExistsAtPath:customLocalizationBundlePath()])
-            customLocalizationBundle = [NSBundle bundleWithPath:customLocalizationBundlePath()];
     });
-    
-    if (customLocalizationBundle != nil)
-    {
-        NSString *string = [customLocalizationBundle localizedStringForKey:s value:untranslatedString table:nil];
-        if (string != nil && ![string isEqualToString:untranslatedString])
-            return string;
-    }
     
     static NSBundle *localizationBundle = nil;
     static NSBundle *fallbackBundle = nil;
@@ -265,6 +386,10 @@ NSString *TGLocalized(NSString *s)
         fallbackBundle = [NSBundle bundleWithPath:[[NSBundle mainBundle] pathForResource:@"en" ofType:@"lproj"]];
         
         NSString *language = [[NSLocale preferredLanguages] objectAtIndex:0];
+        
+        if ([language isEqualToString:@"gl"] || [language isEqualToString:@"eu"]) {
+            language = @"es";
+        }
         
         if (![[[NSBundle mainBundle] localizations] containsObject:language])
         {
@@ -302,5 +427,5 @@ NSString *TGLocalized(NSString *s)
             return string;
     }
     
-    return s;
+    return s;*/
 }

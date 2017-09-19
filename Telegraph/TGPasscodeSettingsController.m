@@ -87,14 +87,14 @@
         _optionsSection.insets = UIEdgeInsetsMake(26.0f, 0.0f, 44.0f, 0.0f);
         
         _touchIdItem = [[TGSwitchCollectionItem alloc] initWithTitle:TGLocalized(@"PasscodeSettings.UnlockWithTouchId") isOn:false];
-        _touchIdItem.toggled = ^(bool value)
+        _touchIdItem.toggled = ^(bool value, __unused TGSwitchCollectionItem *item)
         {
             __strong TGPasscodeSettingsController *strongSelf = weakSelf;
             if (strongSelf != nil)
                 [strongSelf touchIdToggled:value];
         };
         _simplePasscodeItem = [[TGSwitchCollectionItem alloc] initWithTitle:TGLocalized(@"PasscodeSettings.SimplePasscode") isOn:false];
-        _simplePasscodeItem.toggled = ^(bool value)
+        _simplePasscodeItem.toggled = ^(bool value, __unused TGSwitchCollectionItem *item)
         {
             __strong TGPasscodeSettingsController *strongSelf = weakSelf;
             if (strongSelf != nil)
@@ -104,7 +104,7 @@
         _optionsInfoItem.topInset = 3.0f + TGRetinaPixel;
         
         _encryptDataItem = [[TGSwitchCollectionItem alloc] initWithTitle:TGLocalized(@"PasscodeSettings.EncryptData") isOn:false];
-        _encryptDataItem.toggled = ^(bool value)
+        _encryptDataItem.toggled = ^(bool value, __unused TGSwitchCollectionItem *item)
         {
             __strong TGPasscodeSettingsController *strongSelf = weakSelf;
             if (strongSelf != nil)
@@ -122,12 +122,16 @@
     return self;
 }
 
-- (bool)supportsTouchId
++ (bool)supportsTouchId
 {
-    if (iosMajorVersion() >= 8)
-    {
-        if ([[[LAContext alloc] init] canEvaluatePolicy:LAPolicyDeviceOwnerAuthenticationWithBiometrics error:nil])
+    if (iosMajorVersion() >= 8) {
+        __autoreleasing NSError *error = nil;
+        if ([[[LAContext alloc] init] canEvaluatePolicy:LAPolicyDeviceOwnerAuthenticationWithBiometrics error:&error]) {
             return true;
+        }
+        if (error.code != kLAErrorTouchIDNotAvailable) {
+            return true;
+        }
     }
     
     return false;
@@ -160,6 +164,11 @@
 {
     [[NSUserDefaults standardUserDefaults] setObject:@(enableTouchId) forKey:@"Passcode_useTouchId"];
     [[NSUserDefaults standardUserDefaults] synchronize];
+    
+    TGDispatchOnMainThread(^
+    {
+        [[TGTelegramNetworking instance] exportCredentialsForExtensions];
+    });
 }
 
 - (void)_updateSections
@@ -243,7 +252,7 @@
         optionsSectionIndex = [self indexForSection:_optionsSection];
         
         [self.menuSections addItemToSection:optionsSectionIndex item:_timeoutIntervalItem];
-        if ([self supportsTouchId])
+        if ([TGPasscodeSettingsController supportsTouchId])
             [self.menuSections addItemToSection:optionsSectionIndex item:_touchIdItem];
         [self.menuSections addItemToSection:optionsSectionIndex item:_simplePasscodeItem];
         [self.menuSections addItemToSection:optionsSectionIndex item:_optionsInfoItem];
@@ -277,6 +286,8 @@
                         [strongSelf _updateSections];
                         [strongSelf dismissViewControllerAnimated:true completion:nil];
                         [progressWindow dismissWithSuccess];
+                        
+                        [TGAppDelegateInstance setupShortcutItems];
                     });
                 }];
             }
@@ -321,6 +332,8 @@
                         [progressWindow dismissWithSuccess];
                         
                         [TGAppDelegateInstance setIsManuallyLocked:false];
+                        
+                        [TGAppDelegateInstance setupShortcutItems];
                     });
                 }];
             }

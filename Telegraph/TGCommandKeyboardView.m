@@ -7,6 +7,8 @@
 
 #import "TGBotReplyMarkup.h"
 
+#import "TGViewController.h"
+
 @interface TGCommandKeyboardScrollView : UIScrollView
 
 @end
@@ -170,7 +172,7 @@
                 if (i == index)
                 {
                     if (_commandActivated)
-                        _commandActivated(button.text, _replyMarkup.userId, _replyMarkup.messageId);
+                        _commandActivated(button, _replyMarkup.userId, _replyMarkup.messageId);
                     found = true;
                     break;
                 }
@@ -225,7 +227,7 @@
     
     _backgroundView.frame = CGRectMake(0.0f, 0.0f, bounds.width, bounds.height + 210.0f);
     
-    _topSeparatorView.frame = CGRectMake(0.0f, 0.0f, bounds.width, TGIsRetina() ? 0.5f : 1.0f);
+    _topSeparatorView.frame = CGRectMake(0.0f, 0.0f, bounds.width, TGScreenPixel);
     
     _scrollView.frame = CGRectMake(0.0f, 0.0f, bounds.width, bounds.height);
     
@@ -271,6 +273,42 @@
         }
         rowIndex++;
     }
+}
+
+- (bool)isExpanded
+{
+    return false;
+}
+
+- (void)setExpanded:(bool)__unused expanded
+{
+    
+}
+
+- (CGFloat)preferredHeight:(bool)landscape
+{
+    if (!self.matchDefaultHeight)
+    {
+        CGFloat height = [self sizeThatFits:CGSizeZero].height;
+        return height;
+    }
+    
+    if (TGIsPad())
+        return landscape ? 398.0f : 313.0f;
+    
+    if ([TGViewController hasVeryLargeScreen])
+        return landscape ? 194.0f : 271.0f;
+    else if ([TGViewController hasLargeScreen])
+        return landscape ? 194.0f : 258.0f;
+    else if ([TGViewController isWidescreen])
+        return landscape ? 193.0f : 253.0f;
+    
+    return landscape ? 193.0f : 253.0f;
+}
+
+- (bool)isInteracting
+{
+    return false;
 }
 
 @end

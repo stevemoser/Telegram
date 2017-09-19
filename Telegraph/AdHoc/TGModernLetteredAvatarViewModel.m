@@ -65,14 +65,16 @@
     [super bindViewToContainer:container viewStorage:viewStorage];
     
     TGModernLetteredAvatarView *view = (TGModernLetteredAvatarView *)[self boundView];
-    [view setSingleFontSize:14.0f doubleFontSize:14.0f useBoldFont:true];
+    [view setSingleFontSize:16.0f doubleFontSize:16.0f useBoldFont:false];
     view.fadeTransition = true;
     
     if (_avatarUri.length == 0) {
         if (_uid != 0) {
             [view setFirstName:_firstName lastName:_lastName uid:_uid placeholder:_placeholder];
-        } else {
+        } else if (_groupId != 0) {
             [view setTitle:_title groupId:_groupId placeholder:_placeholder];
+        } else {
+            [view setFirstName:_firstName lastName:_lastName uid:0 placeholder:_placeholder];
         }
     } else {
         [view setAvatarUri:_avatarUri filter:_filter placeholder:_placeholder];

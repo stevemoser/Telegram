@@ -2,6 +2,10 @@
 
 #import "TGImageMediaAttachment+Telegraph.h"
 
+#import "TGCallDiscardReason.h"
+
+#import "TLMessageAction$messageActionPhoneCall.h"
+
 @implementation TGActionMediaAttachment (Telegraph)
 
 - (id)initWithTelegraphActionDesc:(TLMessageAction *)actionDesc
@@ -88,6 +92,23 @@
         } else if ([actionDesc isKindOfClass:[TLMessageAction$messageActionChannelMigrateFrom class]]) {
             self.actionType = TGMessageActionChannelMigratedFrom;
             self.actionData = @{@"groupId": @(((TLMessageAction$messageActionChannelMigrateFrom *)actionDesc).chat_id), @"title": ((TLMessageAction$messageActionChannelMigrateFrom *)actionDesc).title};
+        } else if ([actionDesc isKindOfClass:[TLMessageAction$messageActionPinMessage class]]) {
+            self.actionType = TGMessageActionPinnedMessage;
+        } else if ([actionDesc isKindOfClass:[TLMessageAction$messageActionHistoryClear class]]) {
+            self.actionType = TGMessageActionClearChat;
+        } else if ([actionDesc isKindOfClass:[TLMessageAction$messageActionGameScore class]]) {
+            self.actionType = TGMessageActionGameScore;
+            self.actionData = @{@"gameId": @(((TLMessageAction$messageActionGameScore *)actionDesc).game_id), @"score": @(((TLMessageAction$messageActionGameScore *)actionDesc).score)};
+        } else if ([actionDesc isKindOfClass:[TLMessageAction$messageActionPhoneCall class]]) {
+            self.actionType = TGMessageActionPhoneCall;
+            self.actionData = @{@"callId": @(((TLMessageAction$messageActionPhoneCall *)actionDesc).call_id), @"reason": @([TGCallDiscardReasonAdapter reasonForTLObject:((TLMessageAction$messageActionPhoneCall *)actionDesc).reason]), @"duration": @(((TLMessageAction$messageActionPhoneCall *)actionDesc).duration), };
+        } else if ([actionDesc isKindOfClass:[TLMessageAction$messageActionPaymentSent class]]) {
+            TLMessageAction$messageActionPaymentSent *action = (TLMessageAction$messageActionPaymentSent *)actionDesc;
+            self.actionType = TGMessageActionPaymentSent;
+            self.actionData = @{@"currency": action.currency, @"totalAmount": @(action.total_amount)};
+        } else if ([actionDesc isKindOfClass:[TLMessageAction$messageActionScreenshotTaken class]]) {
+            self.actionType = TGMessageActionEncryptedChatMessageScreenshot;
+            self.actionData = @{};
         }
     }
     return self;

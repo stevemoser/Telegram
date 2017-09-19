@@ -93,6 +93,7 @@ typedef enum {
 @property (nonatomic) UIEdgeInsets explicitTableInset;
 @property (nonatomic) UIEdgeInsets explicitScrollIndicatorInset;
 @property (nonatomic) CGFloat additionalNavigationBarHeight;
+@property (nonatomic) CGFloat additionalStatusBarHeight;
 
 @property (nonatomic) bool navigationBarShouldBeHidden;
 
@@ -109,6 +110,8 @@ typedef enum {
 @property (nonatomic) bool isFirstInStack;
 
 @property (nonatomic, readonly) UIUserInterfaceSizeClass currentSizeClass;
+
+@property (nonatomic, copy) NSArray<id<UIPreviewActionItem>> *(^externalPreviewActionItems)(void);
 
 - (void)setExplicitTableInset:(UIEdgeInsets)explicitTableInset scrollIndicatorInset:(UIEdgeInsets)scrollIndicatorInset;
 

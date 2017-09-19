@@ -29,7 +29,7 @@
     UIView *_containerView;
     TGImageView *_imageView;
     TGModernAnimatedImagePlayer *_player;
-    TGVTAcceleratedVideoView *_acceleratedVideoView;
+    UIView<TGInlineVideoPlayerView> *_acceleratedVideoView;
     
     CGSize _imageSize;
     
@@ -64,7 +64,7 @@
         _imageView.userInteractionEnabled = true;
         [_containerView addSubview:_imageView];
         
-        _acceleratedVideoView = [[TGVTAcceleratedVideoView alloc] init];
+        _acceleratedVideoView = [[[TGVTAcceleratedVideoView videoViewClass] alloc] init];
         _acceleratedVideoView.userInteractionEnabled = false;
         _acceleratedVideoView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         [_imageView addSubview:_acceleratedVideoView];
@@ -193,7 +193,7 @@
     
     _acceleratedVideoView.hidden = !_isVideo;
     
-    NSString *filePath = [[TGPreparedLocalDocumentMessage localDocumentDirectoryForDocumentId:item.webSearchResult.document.documentId] stringByAppendingPathComponent:[TGDocumentMediaAttachment safeFileNameForFileName:item.webSearchResult.document.fileName]];
+    NSString *filePath = [[TGPreparedLocalDocumentMessage localDocumentDirectoryForDocumentId:item.webSearchResult.document.documentId version:item.webSearchResult.document.version] stringByAppendingPathComponent:[TGDocumentMediaAttachment safeFileNameForFileName:item.webSearchResult.document.fileName]];
     bool isVideo = _isVideo;
     
     TGInternalGifSearchResultGalleryItem *checkingItem = item;
@@ -372,12 +372,12 @@
                 TGInternalGifSearchResultGalleryItem *item = (TGInternalGifSearchResultGalleryItem *)self.item;
                 
                 if (_isVideo) {
-                    NSString *filePath = [[TGPreparedLocalDocumentMessage localDocumentDirectoryForDocumentId:item.webSearchResult.document.documentId] stringByAppendingPathComponent:item.webSearchResult.document.safeFileName];
+                    NSString *filePath = [[TGPreparedLocalDocumentMessage localDocumentDirectoryForDocumentId:item.webSearchResult.document.documentId version:item.webSearchResult.document.version] stringByAppendingPathComponent:item.webSearchResult.document.safeFileName];
                     _path = filePath;
                     
                     [self _playWithPath:filePath];
                 } else {
-                    NSString *filePath = [[TGPreparedLocalDocumentMessage localDocumentDirectoryForDocumentId:item.webSearchResult.document.documentId] stringByAppendingPathComponent:[TGDocumentMediaAttachment safeFileNameForFileName:item.webSearchResult.document.fileName]];
+                    NSString *filePath = [[TGPreparedLocalDocumentMessage localDocumentDirectoryForDocumentId:item.webSearchResult.document.documentId version:item.webSearchResult.document.version] stringByAppendingPathComponent:[TGDocumentMediaAttachment safeFileNameForFileName:item.webSearchResult.document.fileName]];
                     NSData *data = [[NSData alloc] initWithContentsOfFile:filePath];
                     _data = data;
                     

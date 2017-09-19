@@ -36,14 +36,18 @@ bool TGIsLocaleArabic();
 + (NSString *)stringWithLocalizedNumberCharacters:(NSString *)string;
 
 + (NSString *)md5:(NSString *)string;
++ (NSString *)md5ForData:(NSData *)data;
 
 + (NSDictionary *)argumentDictionaryInUrlString:(NSString *)string;
 
 + (bool)stringContainsEmoji:(NSString *)string;
++ (bool)stringContainsEmojiOnly:(NSString *)string length:(NSUInteger *)length;
 
 + (NSString *)stringForMessageTimerSeconds:(NSUInteger)seconds;
 + (NSString *)stringForShortMessageTimerSeconds:(NSUInteger)seconds;
 + (NSArray *)stringComponentsForMessageTimerSeconds:(NSUInteger)seconds;
++ (NSString *)stringForCallDurationSeconds:(NSUInteger)seconds;
++ (NSString *)stringForShortCallDurationSeconds:(NSUInteger)seconds;
 + (NSString *)stringForUserCount:(NSUInteger)userCount;
 + (NSString *)stringForFileSize:(int64_t)size;
 + (NSString *)stringForFileSize:(int64_t)size precision:(NSInteger)precision;
@@ -54,6 +58,10 @@ bool TGIsLocaleArabic();
 
 + (NSString *)stringForDeviceType;
 
++ (NSString *)stringForCurrency:(NSString *)currency amount:(int64_t)amount;
+
++ (NSString *)stringForEmojiHashOfData:(NSData *)data count:(NSInteger)count positionExtractor:(int32_t (^)(uint8_t *, int32_t, int32_t))positionExtractor;
+
 @end
 
 @interface NSString (Telegraph)
@@ -62,7 +70,7 @@ bool TGIsLocaleArabic();
 - (int)lengthByComposedCharacterSequencesInRange:(NSRange)range;
 
 - (NSData *)dataByDecodingHexString;
-- (NSArray *)getEmojiFromString:(BOOL)checkColor;
+- (NSArray *)getEmojiFromString:(BOOL)checkColor checkString:(__autoreleasing NSString **)checkString;
 
 - (bool)containsSingleEmoji;
 
@@ -70,10 +78,13 @@ bool TGIsLocaleArabic();
 
 - (NSAttributedString *)attributedFormattedStringWithRegularFont:(UIFont *)regularFont boldFont:(UIFont *)boldFont lineSpacing:(CGFloat)lineSpacing paragraphSpacing:(CGFloat)paragraphSpacing alignment:(NSTextAlignment)alignment;
 
+- (NSString *)urlAnchorPart;
+
 @end
 
 @interface NSData (Telegraph)
 
 - (NSString *)stringByEncodingInHex;
+- (NSString *)stringByEncodingInHexSeparatedByString:(NSString *)string;
 
 @end

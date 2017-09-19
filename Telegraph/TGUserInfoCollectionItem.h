@@ -19,6 +19,7 @@
 @property (nonatomic) bool automaticallyManageUserPresence;
 @property (nonatomic) bool useRealName;
 @property (nonatomic) bool disableAvatar;
+@property (nonatomic) bool showCall;
 @property (nonatomic) CGFloat additinalHeight;
 @property (nonatomic) CGSize avatarOffset;
 @property (nonatomic) CGSize nameOffset;
@@ -30,11 +31,15 @@
 - (void)setUpdatingFirstName:(NSString *)updatingFirstName updatingLastName:(NSString *)updatingLastName;
 
 - (void)setUpdatingAvatar:(UIImage *)updatingAvatar hasUpdatingAvatar:(bool)hasUpdatingAvatar;
+- (void)resetUpdatingAvatar:(NSString *)url;
+
+- (void)setHasUpdatingAvatar:(bool)hasUpdatingAvatar;
 - (bool)hasUpdatingAvatar;
 
 - (void)updateTimestamp;
 
 - (id)visibleAvatarView;
+- (id)avatarView;
 - (void)makeNameFieldFirstResponder;
 - (void)copyUpdatingAvatarToCacheWithUri:(NSString *)uri;
 - (NSString *)editingFirstName;

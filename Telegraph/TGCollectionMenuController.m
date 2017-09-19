@@ -189,7 +189,7 @@
     
     [self _resetCollectionView];
     
-    [self setExplicitTableInset:UIEdgeInsetsMake(-(TGIsRetina() ? 0.5f : 1.0f), 0, 0, 0)];
+    [self setExplicitTableInset:UIEdgeInsetsMake(-(TGScreenPixel), 0, 0, 0)];
     if (![self _updateControllerInset:false])
         [self controllerInsetUpdated:UIEdgeInsetsZero];
 }
@@ -200,8 +200,9 @@
 {
     [super controllerInsetUpdated:previousInset];
     
-    if ([self isViewLoaded])
+    if ([self isViewLoaded]) {
         _headerBackgroundView.frame = CGRectMake(0.0f, 0.0f, self.view.frame.size.width, self.controllerInset.top);
+    }
 }
 
 - (void)viewWillAppear:(BOOL)animated
@@ -286,19 +287,42 @@
     if (item != nil)
     {
         TGCollectionItemView *itemView = [item dequeueItemView:collectionView registeredIdentifiers:_collectionRegisteredIdentifiers forIndexPath:indexPath];
-        if (itemView.boundItem != nil)
-            [itemView.boundItem unbindView];
-        
-        [self updateItem:item itemView:itemView positionAtIndexPath:indexPath ignoreDragging:false animated:false];
-        
-        [item bindView:itemView];
-        
-        [collectionView setupCellForEditing:itemView];
+        if (iosMajorVersion() <= 8) {
+            if (itemView.boundItem != nil)
+                [itemView.boundItem unbindView];
+            
+            [self updateItem:item itemView:itemView positionAtIndexPath:indexPath ignoreDragging:false animated:false];
+            
+            [item bindView:itemView];
+            
+            [collectionView setupCellForEditing:itemView];
+        }
         
         return itemView;
     }
     
     return [collectionView dequeueReusableCellWithReuseIdentifier:@"_empty" forIndexPath:indexPath];
+}
+
+- (void)collectionView:(TGCollectionMenuView *)collectionView willDisplayCell:(UICollectionViewCell *)cell forItemAtIndexPath:(NSIndexPath *)indexPath {
+    if (iosMajorVersion() >= 8) {
+        TGCollectionItem *item = indexPath.section < (NSInteger)_menuSections.sections.count && indexPath.row < (NSInteger)((TGCollectionMenuSection *)_menuSections.sections[indexPath.section]).items.count ? ((TGCollectionMenuSection *)_menuSections.sections[indexPath.section]).items[indexPath.item] : nil;
+        
+        if (item != nil)
+        {
+            TGCollectionItemView *itemView = (TGCollectionItemView *)cell;
+            if (itemView.boundItem != nil)
+                [itemView.boundItem unbindView];
+            
+            [self updateItem:item itemView:itemView positionAtIndexPath:indexPath ignoreDragging:false animated:false];
+            
+            [item bindView:itemView];
+            
+            [collectionView setupCellForEditing:itemView];
+            
+            [self willDisplayItem:item];
+        }
+    }
 }
 
 - (void)collectionView:(UICollectionView *)__unused collectionView didEndDisplayingCell:(TGCollectionItemView *)cell forItemAtIndexPath:(NSIndexPath *)__unused indexPath
@@ -515,6 +539,9 @@
             [self loadMore];
         }
     }
+}
+
+- (void)willDisplayItem:(TGCollectionItem *)__unused item {
 }
 
 - (void)loadMore {

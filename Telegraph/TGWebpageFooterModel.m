@@ -3,9 +3,12 @@
 #import "TGModernFlatteningViewModel.h"
 #import "TGModernColorViewModel.h"
 
+#import "TGWebPageMediaAttachment.h"
+
 @interface TGWebpageFooterModel ()
 {
     TGModernColorViewModel *_lineModel;
+    bool _isInvoice;
 }
 
 @end
@@ -25,19 +28,23 @@ static UIColor *colorForLine(bool incoming)
     return incoming ? incomingColor : outgoingColor;
 }
 
-- (instancetype)initWithContext:(TGModernViewContext *)context incoming:(bool)incoming
+- (instancetype)initWithContext:(TGModernViewContext *)context incoming:(bool)incoming webpage:(TGWebPageMediaAttachment *)webpage
 {
     self = [super init];
     if (self != nil)
     {
         _context = context;
-        _lineModel = [[TGModernColorViewModel alloc] initWithColor:colorForLine(incoming)];
-        [self addSubmodel:_lineModel];
+        _lineModel = [[TGModernColorViewModel alloc] initWithColor:colorForLine(incoming) cornerRadius:1.0f];
+        if ([webpage.pageType isEqualToString:@"invoice"]) {
+            _isInvoice = true;
+        } else {
+            [self addSubmodel:_lineModel];
+        }
     }
     return self;
 }
 
-- (CGSize)contentSizeForContainerSize:(CGSize)__unused containerSize contentSize:(CGSize)__unused contentSize needsContentsUpdate:(bool *)__unused needsContentsUpdate
+- (CGSize)contentSizeForContainerSize:(CGSize)__unused containerSize contentSize:(CGSize)__unused contentSize infoWidth:(CGFloat)__unused infoWidth needsContentsUpdate:(bool *)__unused needsContentsUpdate
 {
     return CGSizeMake(32.0f, 32.0f);
 }
@@ -46,13 +53,13 @@ static UIColor *colorForLine(bool incoming)
 {
 }
 
-- (void)layoutForContainerSize:(CGSize)containerSize contentSize:(CGSize)contentSize needsContentUpdate:(bool *)needsContentUpdate bottomInset:(bool *)hasBottomInset
+- (void)layoutForContainerSize:(CGSize)containerSize contentSize:(CGSize)contentSize infoWidth:(CGFloat)infoWidth needsContentUpdate:(bool *)needsContentUpdate bottomInset:(bool *)hasBottomInset
 {
-    CGSize webpageSize = [self contentSizeForContainerSize:CGSizeMake(containerSize.width - 2.0f - 2.0f, containerSize.height) contentSize:contentSize needsContentsUpdate:needsContentUpdate];
+    CGSize webpageSize = [self contentSizeForContainerSize:CGSizeMake(containerSize.width - 2.0f - 2.0f, containerSize.height) contentSize:contentSize infoWidth:infoWidth needsContentsUpdate:needsContentUpdate];
     CGFloat bottomInset = 0.0f;
-    [self layoutContentInRect:CGRectMake(2.0f, 7.0f, MAX(webpageSize.width, contentSize.width), webpageSize.height) bottomInset:&bottomInset];
+    [self layoutContentInRect:CGRectMake(_isInvoice ? -9.0 : 2.0f, 7.0f, MAX(webpageSize.width, contentSize.width), webpageSize.height) bottomInset:&bottomInset];
     _lineModel.frame = CGRectMake(2.0f, 7.0f, 2.0f, webpageSize.height - 7.0f - 2.0f - bottomInset);
-    self.frame = CGRectMake(self.frame.origin.x, self.frame.origin.y, webpageSize.width + 0.0f, webpageSize.height);
+    self.frame = CGRectMake(self.frame.origin.x, self.frame.origin.y, webpageSize.width - (_isInvoice ? 10.0 : 0.0), webpageSize.height);
     if (hasBottomInset) {
         *hasBottomInset = bottomInset > FLT_EPSILON;
     }
@@ -71,6 +78,10 @@ static UIColor *colorForLine(bool incoming)
     return false;
 }
 
+- (bool)fitContentToWebpage {
+    return false;
+}
+
 - (TGWebpageFooterModelAction)webpageActionAtPoint:(CGPoint)__unused point
 {
     return TGWebpageFooterModelActionNone;
@@ -84,6 +95,10 @@ static UIColor *colorForLine(bool incoming)
 - (bool)webpageContentsActivated
 {
     return false;
+}
+
+- (void)activateMediaPlayback
+{
 }
 
 - (NSString *)linkAtPoint:(CGPoint)__unused point regionData:(__autoreleasing NSArray **)__unused regionData
@@ -121,10 +136,17 @@ static UIColor *colorForLine(bool incoming)
 - (void)imageDataInvalidated:(NSString *)__unused imageUrl {
 }
 
-- (void)stopInlineMedia {
+- (void)stopInlineMedia:(int32_t)__unused excludeMid {
 }
 
 - (void)resumeInlineMedia {
+}
+
+- (void)updateMessageId:(int32_t)__unused messageId {
+}
+
+- (bool)isPreviewableAtPoint:(CGPoint)__unused point {
+    return false;
 }
 
 @end

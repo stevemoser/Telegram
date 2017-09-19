@@ -24,7 +24,13 @@
 
 #import "TGTelegramNetworking.h"
 
+#import "TGLocalization.h"
+#import "TGLocalizationSignals.h"
+
 static NSTimeInterval configInvalidationDate = 0.0;
+
+static bool sharedExperimentalPasscodeBlurDisabled = false;
+static bool sharedExperimentalPasscodeBlurDisabledInitialized = false;
 
 @interface TGUpdateConfigActor () <ASWatcher>
 {
@@ -138,14 +144,16 @@ static NSTimeInterval configInvalidationDate = 0.0;
 
 - (void)inviteTextRequestSuccess:(TLhelp_InviteText *)inviteText
 {
-    TGDispatchOnMainThread(^
-    {
-        if (inviteText.message.length != 0)
+    if ([inviteText isKindOfClass:[TLhelp_InviteText class]]) {
+        TGDispatchOnMainThread(^
         {
-            [[NSUserDefaults standardUserDefaults] setObject:inviteText.message forKey:@"TG_inviteText"];
-            [[NSUserDefaults standardUserDefaults] synchronize];
-        }
-    });
+            if (inviteText.message.length != 0)
+            {
+                [[NSUserDefaults standardUserDefaults] setObject:inviteText.message forKey:@"TG_inviteText"];
+                [[NSUserDefaults standardUserDefaults] synchronize];
+            }
+        });
+    }
     
     _inviteReceived = true;
     [self _maybeComplete];
@@ -157,8 +165,38 @@ static NSTimeInterval configInvalidationDate = 0.0;
     [self _maybeComplete];
 }
 
++ (BOOL)cachedExperimentalPasscodeBlurDisabled {
+    if (sharedExperimentalPasscodeBlurDisabledInitialized) {
+        return sharedExperimentalPasscodeBlurDisabled;
+    } else {
+        NSData *data = [TGDatabaseInstance() customProperty:@"experimentalPasscodeBlurDisabled"];
+        int32_t experimentalPasscodeBlurDisabled = 0;
+        if (data.length == 4) {
+            [data getBytes:&experimentalPasscodeBlurDisabled];
+        }
+        sharedExperimentalPasscodeBlurDisabled = experimentalPasscodeBlurDisabled != 0;
+        sharedExperimentalPasscodeBlurDisabledInitialized = true;
+        return sharedExperimentalPasscodeBlurDisabled;
+    }
+}
+
 - (void)configRequestSuccess:(TLConfig *)config
 {
+    int32_t experimentalPasscodeBlurDisabled = 0;
+    if (config.flags & (1 << 28)) {
+        experimentalPasscodeBlurDisabled = true;
+        [TGDatabaseInstance() setCustomProperty:@"experimentalPasscodeBlurDisabled" value:[NSData dataWithBytes:&experimentalPasscodeBlurDisabled length:4]];
+    }
+    
+    sharedExperimentalPasscodeBlurDisabled = experimentalPasscodeBlurDisabled != 0;
+    sharedExperimentalPasscodeBlurDisabledInitialized = true;
+    
+    NSData *phoneCallsEnabledData = [TGDatabaseInstance() customProperty:@"phoneCallsEnabled"];
+    int32_t previousPhoneCallsEnabled = false;
+    if (phoneCallsEnabledData.length == 4) {
+        [phoneCallsEnabledData getBytes:&previousPhoneCallsEnabled];
+    }
+    
     int32_t maxChatParticipants = MAX(100, config.chat_size_max);
     [TGDatabaseInstance() setCustomProperty:@"maxChatParticipants" value:[NSData dataWithBytes:&maxChatParticipants length:4]];
     
@@ -168,8 +206,44 @@ static NSTimeInterval configInvalidationDate = 0.0;
     int32_t maxSavedGifs = config.saved_gifs_limit;
     [TGDatabaseInstance() setCustomProperty:@"maxSavedGifs" value:[NSData dataWithBytes:&maxSavedGifs length:4]];
     
+    int32_t maxSavedStickers = config.stickers_recent_limit;
+    [TGDatabaseInstance() setCustomProperty:@"maxSavedStickers" value:[NSData dataWithBytes:&maxSavedStickers length:4]];
+    
     int32_t maxChannelMessageEditTime = config.edit_time_limit;
     [TGDatabaseInstance() setCustomProperty:@"maxChannelMessageEditTime" value:[NSData dataWithBytes:&maxChannelMessageEditTime length:4]];
+		
+    int32_t phoneCallsEnabled = config.flags & (1 << 1);
+    [TGDatabaseInstance() setCustomProperty:@"phoneCallsEnabled" value:[NSData dataWithBytes:&phoneCallsEnabled length:4]];
+    
+    int32_t callReceiveTimeout = config.call_receive_timeout_ms;
+    [TGDatabaseInstance() setCustomProperty:@"callReceiveTimeout" value:[NSData dataWithBytes:&callReceiveTimeout length:4]];
+    
+    int32_t callRingTimeout = config.call_ring_timeout_ms;
+    [TGDatabaseInstance() setCustomProperty:@"callRingTimeout" value:[NSData dataWithBytes:&callRingTimeout length:4]];
+    
+    int32_t callConnectTimeout = config.call_connect_timeout_ms;
+    [TGDatabaseInstance() setCustomProperty:@"callConnectTimeout" value:[NSData dataWithBytes:&callConnectTimeout length:4]];
+    
+    int32_t callPacketTimeout = config.call_packet_timeout_ms;
+    [TGDatabaseInstance() setCustomProperty:@"callPacketTimeout" value:[NSData dataWithBytes:&callPacketTimeout length:4]];
+    
+    int32_t maxPinnedChats = config.pinned_dialogs_count_max;
+    [TGDatabaseInstance() setCustomProperty:@"maxPinnedChats" value:[NSData dataWithBytes:&maxPinnedChats length:4]];
+    
+    if (phoneCallsEnabled != previousPhoneCallsEnabled) {
+        TGLog(@"phoneCallsEnabled changed to %d", phoneCallsEnabled);
+        
+        [TGDatabaseInstance() clearCachedUserLinks];
+        
+        bool enabled = (phoneCallsEnabled != 0);
+        [ActionStageInstance() dispatchResource:@"/tg/calls/enabled" resource:[[SGraphObjectNode alloc] initWithObject:@(enabled)]];
+    }
+    
+    [TGDatabaseInstance() setSuggestedLocalizationCode:config.suggested_lang_code];
+    
+    if (config.lang_pack_version != currentNativeLocalization().version) {
+        [TGTelegraphInstance.disposeOnLogout add:[[TGLocalizationSignals pollLocalization] startWithNext:nil]];
+    }
     
     //[TGApplicationFeatures setLargeGroupMemberCountLimit:(NSUInteger)config.chat_big_size];
     

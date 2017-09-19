@@ -1189,7 +1189,7 @@ static UIImage *generateDownloadButton(int baseColor, CGFloat alphaFactor, CGFlo
 
 - (UIColor *)systemMessageBackgroundColor
 {
-    return UIColorRGBA(0x000000, MIN(1.0f, 0.3f));
+    return UIColorRGBA(_monochromeColor, _systemAlpha); //UIColorRGBA(0x000000, MIN(1.0f, 0.3f));
 }
 
 - (UIImage *)dateListMessageBackground
@@ -1233,15 +1233,138 @@ static UIImage *generateDownloadButton(int baseColor, CGFloat alphaFactor, CGFlo
     return image;
 }
 
+- (UIImage *)systemSwipeReplyIcon
+{
+    static int cachedImageColor = -1;
+    static UIImage *image = nil;
+    if (cachedImageColor != _monochromeColor || image == nil)
+    {
+        UIGraphicsBeginImageContextWithOptions(CGSizeMake(33.0f, 33.0f), false, 0.0f);
+        CGContextRef context = UIGraphicsGetCurrentContext();
+        
+        CGFloat backgroundAlpha = _systemAlpha;
+        UIColor *color = UIColorRGBA(_monochromeColor, backgroundAlpha);
+        
+        CGContextSetFillColorWithColor(context, color.CGColor);
+        CGContextFillEllipseInRect(context, CGRectMake(0.0f, 0.0f, 33.0f, 33.0f));
+        
+        CGContextTranslateCTM(context, 33.0f, 0);
+        CGContextScaleCTM(context, -1.0, 1.0);
+        UIImage *iconImage = [UIImage imageNamed:@"ConversationChannelInlineShareIcon.png"];
+        [iconImage drawAtPoint:CGPointMake(CGFloor((33.0f - iconImage.size.width) / 2.0f), CGFloor((33.0f - iconImage.size.height) / 2.0f))];
+        
+        image = UIGraphicsGetImageFromCurrentImageContext();
+        UIGraphicsEndImageContext();
+        
+        cachedImageColor = _monochromeColor;
+    }
+    return image;
+}
+
+- (UIImage *)systemUnmuteButton {
+    static int cachedImageColor = -1;
+    static UIImage *image = nil;
+    if (cachedImageColor != _monochromeColor || image == nil)
+    {
+        UIGraphicsBeginImageContextWithOptions(CGSizeMake(24.0f, 24.0f), false, 0.0f);
+        CGContextRef context = UIGraphicsGetCurrentContext();
+        
+        UIColor *color = UIColorRGBA(0x000000, 0.4f);
+        
+        CGContextSetFillColorWithColor(context, color.CGColor);
+        CGContextFillEllipseInRect(context, CGRectMake(0.0f, 0.0f, 24.0f, 24.0f));
+        
+        UIImage *iconImage = [UIImage imageNamed:@"VideoMessageMutedIcon.png"];
+        [iconImage drawAtPoint:CGPointMake(CGFloor((24.0f - iconImage.size.width) / 2.0f), CGFloor((24.0f - iconImage.size.height) / 2.0f))];
+        
+        image = UIGraphicsGetImageFromCurrentImageContext();
+        UIGraphicsEndImageContext();
+        
+        cachedImageColor = _monochromeColor;
+    }
+    return image;
+}
+
+- (UIImage *)systemMuteButton {
+    static int cachedImageColor = -1;
+    static UIImage *image = nil;
+    if (cachedImageColor != _monochromeColor || image == nil)
+    {
+        UIGraphicsBeginImageContextWithOptions(CGSizeMake(24.0f, 24.0f), false, 0.0f);
+        CGContextRef context = UIGraphicsGetCurrentContext();
+        
+        CGFloat backgroundAlpha = _systemAlpha;
+        UIColor *color = UIColorRGBA(_monochromeColor, backgroundAlpha);
+        
+        CGContextSetFillColorWithColor(context, color.CGColor);
+        CGContextFillEllipseInRect(context, CGRectMake(0.0f, 0.0f, 24.0f, 24.0f));
+        
+        UIImage *iconImage = [UIImage imageNamed:@"VideoMessageUnmutedIcon.png"];
+        [iconImage drawAtPoint:CGPointMake(CGFloor((24.0f - iconImage.size.width) / 2.0f), CGFloor((24.0f - iconImage.size.height) / 2.0f))];
+        
+        image = UIGraphicsGetImageFromCurrentImageContext();
+        UIGraphicsEndImageContext();
+        
+        cachedImageColor = _monochromeColor;
+    }
+    return image;
+}
+
+- (UIImage *)systemReplyButton {
+    static int cachedImageColor = -1;
+    static UIImage *image = nil;
+    if (cachedImageColor != _monochromeColor || image == nil)
+    {
+        CGFloat size = 14.0f;
+        UIGraphicsBeginImageContextWithOptions(CGSizeMake(size, size), false, 0.0f);
+        CGContextRef context = UIGraphicsGetCurrentContext();
+        
+        CGFloat backgroundAlpha = _systemAlpha;
+        UIColor *color = UIColorRGBA(_monochromeColor, backgroundAlpha);
+        
+        CGContextSetFillColorWithColor(context, color.CGColor);
+        CGContextFillEllipseInRect(context, CGRectMake(0.0f, 0.0f, size, size));
+        
+        image = [UIGraphicsGetImageFromCurrentImageContext() stretchableImageWithLeftCapWidth:(NSInteger)(size / 2.0f) topCapHeight:(NSInteger)(size / 2.0f)];
+        UIGraphicsEndImageContext();
+        
+        cachedImageColor = _monochromeColor;
+    }
+    return image;
+}
+
+- (UIImage *)systemReplyHighlightedButton {
+    static int cachedImageColor = -1;
+    static UIImage *image = nil;
+    if (cachedImageColor != _monochromeColor || image == nil)
+    {
+        CGFloat size = 14.0f;
+        UIGraphicsBeginImageContextWithOptions(CGSizeMake(size, size), false, 0.0f);
+        CGContextRef context = UIGraphicsGetCurrentContext();
+        
+        CGFloat backgroundAlpha = _systemAlpha * 0.8;
+        UIColor *color = UIColorRGBA(_monochromeColor, backgroundAlpha);
+        
+        CGContextSetFillColorWithColor(context, color.CGColor);
+        CGContextFillEllipseInRect(context, CGRectMake(0.0f, 0.0f, size, size));
+        
+        image = [UIGraphicsGetImageFromCurrentImageContext() stretchableImageWithLeftCapWidth:(NSInteger)(size / 2.0f) topCapHeight:(NSInteger)(size / 2.0f)];
+        UIGraphicsEndImageContext();
+        
+        cachedImageColor = _monochromeColor;
+    }
+    return image;
+}
+
 - (UIImage *)generateSystemReplyBackground:(int)baseColor
 {
     CGFloat backgroundAlpha = _systemAlpha;
     
-    UIGraphicsBeginImageContextWithOptions(CGSizeMake(4.0f, 4.0f), false, 0.0f);
+    UIGraphicsBeginImageContextWithOptions(CGSizeMake(16.0f, 16.0f), false, 0.0f);
     
     CGContextRef context = UIGraphicsGetCurrentContext();
     
-    CGRect bounds = CGRectMake(0.0f, 0.0f, 4.0f, 4.0f);
+    CGRect bounds = CGRectMake(0.0f, 0.0f, 16.0f, 16.0f);
     
     CGFloat radius = 0.5f * CGRectGetHeight(bounds);
     

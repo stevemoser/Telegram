@@ -11,6 +11,14 @@
 
 #import "TGRecentHashtagsSignal.h"
 
+#import "TGDialogListRecentPeers.h"
+
+#import "TGRecentPeersSignals.h"
+
+#import "TGRemoteRecentPeer.h"
+#import "TGRemoteRecentPeerSet.h"
+#import "TGRemoteRecentPeerCategories.h"
+
 NSString *const TGRecentSearchDefaultsKey = @"Telegram_recentSearch_peers";
 const NSInteger TGRecentSearchLimit = 20;
 
@@ -432,9 +440,24 @@ const NSInteger TGRecentSearchLimit = 20;
     [[self userDefaults] synchronize];
 }
 
-+ (SSignal *)recentPeerResults:(id (^)(id))itemMapping
++ (NSString *)titleForCategory:(TGPeerRatingCategory)category {
+    switch (category) {
+        case TGPeerRatingCategoryPeople:
+            return TGLocalized(@"DialogList.RecentTitlePeople");
+        case TGPeerRatingCategoryGroups:
+            return TGLocalized(@"DialogList.RecentTitleGroups");
+        case TGPeerRatingCategoryBots:
+            return TGLocalized(@"DialogList.RecentTitleBots");
+        case TGPeerRatingCategoryNone:
+            return nil;
+        case TGPeerRatingCategoryInlineBots:
+            return nil;
+    }
+}
+
++ (SSignal *)recentPeerResults:(id (^)(id))itemMapping ratedPeers:(bool)ratedPeers
 {
-    return [[SSignal alloc] initWithGenerator:^id<SDisposable>(SSubscriber *subscriber)
+    return [[[SSignal alloc] initWithGenerator:^id<SDisposable>(SSubscriber *subscriber)
     {
         NSArray *array = [[self userDefaults] objectForKey:TGRecentSearchDefaultsKey];
         NSMutableArray *peers = [[NSMutableArray alloc] init];
@@ -460,9 +483,156 @@ const NSInteger TGRecentSearchLimit = 20;
                     [peers addObject:user];
             }
         }
+        
         [subscriber putNext:peers];
         [subscriber putCompletion];
         
+        return nil;
+    }] mapToSignal:^SSignal *(NSArray *peers) {
+        if (ratedPeers) {
+            return [[TGRecentPeersSignals recentPeers] mapToSignal:^id(TGRemoteRecentPeerCategories *categories) {
+                return [TGDatabaseInstance() modify:^id{
+                    NSMutableDictionary *parsedCategories = [[NSMutableDictionary alloc] init];
+                    
+                    [categories.categories enumerateKeysAndObjectsUsingBlock:^(NSNumber *category, TGRemoteRecentPeerSet *peers, __unused BOOL *stop) {
+                        NSMutableArray *parsedPeers = [[NSMutableArray alloc] init];
+                        
+                        for (TGRemoteRecentPeer *peer in [peers.peers sortedArrayUsingComparator:^NSComparisonResult(TGRemoteRecentPeer *lhs, TGRemoteRecentPeer *rhs) {
+                            return lhs.rating > rhs.rating ? NSOrderedAscending : NSOrderedDescending;
+                        }]) {
+                            TGConversation *conversation = [TGDatabaseInstance() loadConversationWithId:peer.peerId];
+                            if (conversation != nil) {
+                                if (conversation.isDeactivated) {
+                                    continue;
+                                }
+                                
+                                id item = itemMapping(conversation);
+                                if (item != nil) {
+                                    if (TGPeerIdIsUser(conversation.conversationId)) {
+                                        TGUser *user = [TGDatabaseInstance() loadUser:(int)conversation.conversationId];
+                                        if (user != nil) {
+                                            [parsedPeers addObject:user];
+                                        }
+                                    } else {
+                                        [parsedPeers addObject:item];
+                                    }
+                                }
+                            }
+                            
+                            if (conversation == nil) {
+                                TGUser *user = [TGDatabaseInstance() loadUser:(int)peer.peerId];
+                                if (user != nil) {
+                                    [parsedPeers addObject:user];
+                                }
+                            }
+                        }
+                        
+                        parsedCategories[category] = [[TGDialogListRecentPeers alloc] initWithIdentifier:[NSString stringWithFormat:@"%d", [category intValue]] title:[self titleForCategory:[category intValue]] peers:parsedPeers];
+                    }];
+                    
+                    NSMutableArray *result = [[NSMutableArray alloc] init];
+                    
+                    NSArray *categoryOrder = @[@(TGPeerRatingCategoryPeople)/*, @(TGPeerRatingCategoryGroups), @(TGPeerRatingCategoryBots)*/];
+                    
+                    for (NSNumber *category in categoryOrder) {
+                        TGDialogListRecentPeers *parsedCategory = parsedCategories[category];
+                        if (parsedCategory != nil && parsedCategory.peers.count != 0) {
+                            [result addObject:parsedCategory];
+                        }
+                    }
+                    
+                    [result addObjectsFromArray:peers];
+                    
+                    return result;
+                }];
+            }];
+        } else {
+            return [SSignal single:peers];
+        }
+    }];
+}
+
++ (SSignal *)searchChannelMembers:(NSString *)query peerId:(int64_t)peerId accessHash:(int64_t)accessHash section:(TGGlobalMessageSearchMembersSection)section {
+    TLRPCchannels_getParticipants$channels_getParticipants *getParticipants = [[TLRPCchannels_getParticipants$channels_getParticipants alloc] init];
+    TLInputChannel$inputChannel *inputChannel = [[TLInputChannel$inputChannel alloc] init];
+    inputChannel.channel_id = TGChannelIdFromPeerId(peerId);
+    inputChannel.access_hash = accessHash;
+    getParticipants.channel = inputChannel;
+    
+    switch (section) {
+        case TGGlobalMessageSearchMembersSectionMembers: {
+            TLChannelParticipantsFilter$channelParticipantsSearch *filter = [[TLChannelParticipantsFilter$channelParticipantsSearch alloc] init];
+            filter.q = query;
+            getParticipants.filter = filter;
+            break;
+        }
+        case TGGlobalMessageSearchMembersSectionBanned: {
+            TLChannelParticipantsFilter$channelParticipantsKicked *filter = [[TLChannelParticipantsFilter$channelParticipantsKicked alloc] init];
+            filter.q = query;
+            getParticipants.filter = filter;
+            break;
+        }
+        case TGGlobalMessageSearchMembersSectionRestricted: {
+            TLChannelParticipantsFilter$channelParticipantsBanned *filter = [[TLChannelParticipantsFilter$channelParticipantsBanned alloc] init];
+            filter.q = query;
+            getParticipants.filter = filter;
+            break;
+        }
+        default:
+            break;
+    }
+    getParticipants.offset = 0;
+    getParticipants.limit = 100;
+    
+    return [[[TGTelegramNetworking instance] requestSignal:getParticipants] mapToSignal:^SSignal *(TLchannels_ChannelParticipants *result) {
+        [TGUserDataRequestBuilder executeUserDataUpdate:result.users];
+        
+        NSMutableArray *users = [[NSMutableArray alloc] init];
+        NSMutableDictionary *memberDatas = [[NSMutableDictionary alloc] init];
+        
+        for (TLChannelParticipant *participant in result.participants) {
+            TGUser *user = [TGDatabaseInstance() loadUser:participant.user_id];
+            if (user != nil) {
+                int32_t timestamp = 0;
+                bool isCreator = false;
+                TGChannelAdminRights *adminRights = nil;
+                TGChannelBannedRights *bannedRights = nil;
+                int32_t inviterId = 0;
+                int32_t adminInviterId = 0;
+                int32_t kickedById = 0;
+                bool adminCanManage = false;
+                
+                if ([participant isKindOfClass:[TLChannelParticipant$channelParticipant class]]) {
+                    timestamp = ((TLChannelParticipant$channelParticipant *)participant).date;
+                } else if ([participant isKindOfClass:[TLChannelParticipant$channelParticipantCreator class]]) {
+                    isCreator = true;
+                    timestamp = 0;
+                } else if ([participant isKindOfClass:[TLChannelParticipant$channelParticipantAdmin class]]) {
+                    adminRights = [[TGChannelAdminRights alloc] initWithTL:((TLChannelParticipant$channelParticipantAdmin *)participant).admin_rights];
+                    inviterId = ((TLChannelParticipant$channelParticipantAdmin *)participant).inviter_id;
+                    timestamp = ((TLChannelParticipant$channelParticipantAdmin *)participant).date;
+                    adminInviterId = ((TLChannelParticipant$channelParticipantAdmin *)participant).promoted_by;
+                    adminCanManage = ((TLChannelParticipant$channelParticipantAdmin *)participant).flags & (1 << 0);
+                } else if ([participant isKindOfClass:[TLChannelParticipant$channelParticipantBanned class]]) {
+                    timestamp = ((TLChannelParticipant$channelParticipantBanned *)participant).date;
+                    bannedRights = [[TGChannelBannedRights alloc] initWithTL:((TLChannelParticipant$channelParticipantBanned *)participant).banned_rights];
+                    kickedById = ((TLChannelParticipant$channelParticipantBanned *)participant).kicked_by;
+                }
+                
+                memberDatas[@(user.uid)] = [[TGCachedConversationMember alloc] initWithUid:user.uid isCreator:isCreator adminRights:adminRights bannedRights:bannedRights timestamp:timestamp inviterId:inviterId adminInviterId:adminInviterId kickedById:kickedById adminCanManage:adminCanManage];
+                [users addObject:user];
+            }
+        }
+        
+        return [SSignal single:@{@"memberDatas": memberDatas, @"users": users}];
+    }];
+}
+
++ (SSignal *)searchContacts:(NSString *)query {
+    return [[SSignal alloc] initWithGenerator:^id<SDisposable>(SSubscriber *subscriber) {
+        [TGDatabaseInstance() searchContacts:query ignoreUid:TGTelegraphInstance.clientUserId searchPhonebook:false completion:^(NSDictionary *result) {
+            [subscriber putNext:result[@"users"] ?: @[]];
+        }];
         return nil;
     }];
 }

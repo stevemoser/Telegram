@@ -15,6 +15,8 @@
 @property (nonatomic, assign) NSTimeInterval trimStartValue;
 @property (nonatomic, assign) NSTimeInterval trimEndValue;
 
+@property (nonatomic, assign) NSTimeInterval maximumLength;
+
 
 @property (nonatomic, assign) bool isPlaying;
 @property (nonatomic, assign) NSTimeInterval value;
@@ -32,6 +34,8 @@
 - (void)resetThumbnails;
 
 - (void)setThumbnailImage:(UIImage *)image forTimestamp:(NSTimeInterval)timestamp isSummaryThubmnail:(bool)isSummaryThumbnail;
+
+- (void)setRecipientName:(NSString *)recipientName;
 
 @end
 
@@ -61,6 +65,6 @@
 
 - (CGFloat)videoScrubberThumbnailAspectRatio:(TGMediaPickerGalleryVideoScrubber *)videoScrubber;
 
-- (CGSize)videoScrubberOriginalSize:(TGMediaPickerGalleryVideoScrubber *)videoScrubber cropRect:(CGRect *)cropRect cropOrientation:(UIImageOrientation *)cropOrientation;
+- (CGSize)videoScrubberOriginalSize:(TGMediaPickerGalleryVideoScrubber *)videoScrubber cropRect:(CGRect *)cropRect cropOrientation:(UIImageOrientation *)cropOrientation cropMirrored:(bool *)cropMirrored;
 
 @end

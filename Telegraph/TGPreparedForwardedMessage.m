@@ -33,6 +33,7 @@
     {
         _keepForwarded = keepForwarded;
         TGMessage *innerMessage = [message copy];
+        innerMessage.isEdited = false;
         
         NSMutableArray *attachments = [[NSMutableArray alloc] init];
         for (TGMediaAttachment *attachment in message.mediaAttachments)
@@ -47,10 +48,14 @@
                     _forwardPeerId = forwardedMessageAttachment.forwardPeerId;
                     _forwardAuthorUserId = forwardedMessageAttachment.forwardAuthorUserId;
                     _forwardPostId = forwardedMessageAttachment.forwardPostId;
+                    _forwardSourcePeerId = forwardedMessageAttachment.forwardSourcePeerId;
                 }
+                _forwardAuthorSignature = forwardedMessageAttachment.forwardAuthorSignature;
             }
             else if ([attachment isKindOfClass:[TGReplyMessageMediaAttachment class]])
             {
+            }
+            else if ([attachment isKindOfClass:[TGReplyMarkupAttachment class]]) {
             }
             else
                 [attachments addObject:attachment];
@@ -66,12 +71,12 @@
                 if (!TGPeerIdIsChannel(innerMessage.fromUid) && innerMessage.fromUid != 0) {
                     _forwardAuthorUserId = (int32_t)innerMessage.fromUid;
                 }
+                _forwardAuthorSignature = innerMessage.authorSignature;
             } else {
                 _forwardPeerId = innerMessage.fromUid;
             }
+            _forwardSourcePeerId = innerMessage.cid;
         }
-        
-        _forwardSourcePeerId = innerMessage.cid;
     }
     return self;
 }
@@ -93,6 +98,8 @@
         forwardAttachment.forwardMid = _forwardMid;
         forwardAttachment.forwardPostId = _forwardPostId;
         forwardAttachment.forwardAuthorUserId = _forwardAuthorUserId;
+        forwardAttachment.forwardSourcePeerId = _forwardSourcePeerId;
+        forwardAttachment.forwardAuthorSignature = _forwardAuthorSignature;
     }
     
     NSMutableArray *attachments = [[NSMutableArray alloc] init];
@@ -103,6 +110,10 @@
     }
     if (forwardAttachment != nil)
         [attachments addObject:forwardAttachment];
+    
+    if (self.replyMarkup != nil) {
+        [attachments addObject:self.replyMarkup];
+    }
     
     message.mediaAttachments = attachments;
     

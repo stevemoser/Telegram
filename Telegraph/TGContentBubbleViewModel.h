@@ -17,10 +17,12 @@
 @class TGReplyHeaderModel;
 @class TGWebpageFooterModel;
 @class TGWebPageMediaAttachment;
+@class TGInvoiceMediaAttachment;
 
 @class TGDoubleTapGestureRecognizer;
 @class TGMessageViewCountContentProperty;
 @class TGMessageViewsViewModel;
+@class TGModernLabelViewModel;
 
 extern bool debugShowMessageIds;
 
@@ -38,6 +40,7 @@ extern bool debugShowMessageIds;
     TGWebpageFooterModel *_webPageFooterModel;
     
     TGModernDateViewModel *_dateModel;
+    TGModernLabelViewModel *_editedLabelModel;
     TGModernClockProgressViewModel *_progressModel;
     TGModernImageViewModel *_checkFirstModel;
     TGModernImageViewModel *_checkSecondModel;
@@ -52,6 +55,7 @@ extern bool debugShowMessageIds;
     int32_t _date;
     
     bool _hasAvatar;
+    bool _inhibitChecks;
     
     int64_t _forwardedPeerId;
     int64_t _forwardedMessageId;
@@ -68,9 +72,9 @@ extern bool debugShowMessageIds;
 - (instancetype)initWithMessage:(TGMessage *)message authorPeer:(id)authorPeer viaUser:(TGUser *)viaUser context:(TGModernViewContext *)context;
 
 - (void)setAuthorNameColor:(UIColor *)authorNameColor;
-- (void)setForwardHeader:(id)forwardPeer forwardAuthor:(id)forwardAuthor messageId:(int32_t)messageId;
+- (void)setForwardHeader:(id)forwardPeer forwardAuthor:(id)forwardAuthor messageId:(int32_t)messageId forwardSignature:(NSString *)forwardSignature;
 - (void)setReplyHeader:(TGMessage *)replyHeader peer:(id)peer;
-- (void)setWebPageFooter:(TGWebPageMediaAttachment *)webPage viewStorage:(TGModernViewStorage *)viewStorage;
+- (void)setWebPageFooter:(TGWebPageMediaAttachment *)webPage invoice:(TGInvoiceMediaAttachment *)invoice viewStorage:(TGModernViewStorage *)viewStorage;
 
 - (void)messageDoubleTapGesture:(TGDoubleTapGestureRecognizer *)recognizer;
 - (void)gestureRecognizer:(TGDoubleTapGestureRecognizer *)recognizer didBeginAtPoint:(CGPoint)point;
@@ -78,9 +82,11 @@ extern bool debugShowMessageIds;
 - (bool)gestureRecognizerShouldHandleLongTap:(TGDoubleTapGestureRecognizer *)recognizer;
 - (int)gestureRecognizer:(TGDoubleTapGestureRecognizer *)recognizer shouldFailTap:(CGPoint)point;
 - (void)doubleTapGestureRecognizerSingleTapped:(TGDoubleTapGestureRecognizer *)recognizer;
+- (void)instantPageButtonPressed;
 
 - (void)layoutContentForHeaderHeight:(CGFloat)headerHeight;
-- (CGSize)contentSizeForContainerSize:(CGSize)containerSize needsContentsUpdate:(bool *)needsContentsUpdate hasDate:(bool)hasDate hasViews:(bool)hasViews;
+- (void)layoutContentForHeaderHeight:(CGFloat)headerHeight containerSize:(CGSize)containerSize;
+- (CGSize)contentSizeForContainerSize:(CGSize)containerSize needsContentsUpdate:(bool *)needsContentsUpdate infoWidth:(CGFloat)infoWidth;
 
 + (TGReplyHeaderModel *)replyHeaderModelFromMessage:(TGMessage *)replyHeader peer:(id)peer incoming:(bool)incoming system:(bool)system;
 

@@ -6,6 +6,7 @@
 
 #import "TGTextField.h"
 #import "TGLetteredAvatarView.h"
+#import "TGModernButton.h"
 
 #import "TGSynchronizeContactsActor.h"
 
@@ -49,6 +50,8 @@
     int32_t _uidForPlaceholderCalculation;
     
     UIImageView *_verifiedIcon;
+    
+    TGModernButton *_callButton;
 }
 
 @end
@@ -61,7 +64,7 @@
     if (self)
     {   
         _avatarView = [[TGLetteredAvatarView alloc] initWithFrame:CGRectMake(15, 15 + TGRetinaPixel, 66, 66)];
-        [_avatarView setSingleFontSize:35.0f doubleFontSize:21.0f useBoldFont:false];
+        [_avatarView setSingleFontSize:28.0f doubleFontSize:28.0f useBoldFont:false];
         _avatarView.fadeTransition = true;
         _avatarView.userInteractionEnabled = true;
         [_avatarView addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(avatarTapGesture:)]];
@@ -94,6 +97,8 @@
             _firstNameField.textAlignment = NSTextAlignmentNatural;
         _firstNameField.alpha = 0.0f;
         _firstNameField.hidden = true;
+        _firstNameField.autocorrectionType = UITextAutocorrectionTypeNo;
+        _firstNameField.spellCheckingType = UITextSpellCheckingTypeNo;
         [self addSubview:_firstNameField];
         
         _lastNameField = [[TGTextField alloc] init];
@@ -110,6 +115,8 @@
             _lastNameField.textAlignment = NSTextAlignmentNatural;
         _lastNameField.alpha = 0.0f;
         _lastNameField.hidden = true;
+        _lastNameField.autocorrectionType = UITextAutocorrectionTypeNo;
+        _lastNameField.spellCheckingType = UITextSpellCheckingTypeNo;
         [self addSubview:_lastNameField];
         
         _editingFirstNameSeparator = [[UIView alloc] init];
@@ -123,6 +130,14 @@
         _editingLastNameSeparator.hidden = true;
         _editingLastNameSeparator.alpha = 0.0f;
         //[self addSubview:_editingLastNameSeparator];
+        
+        _callButton = [[TGModernButton alloc] initWithFrame:CGRectMake(0.0f, 0.0f, 44.0f, 44.0f)];
+        _callButton.adjustsImageWhenHighlighted = false;
+        _callButton.exclusiveTouch = true;
+        _callButton.hidden = true;
+        [_callButton setImage:TGTintedImage([UIImage imageNamed:@"TabIconCalls"], TGAccentColor()) forState:UIControlStateNormal];
+        [_callButton addTarget:self action:@selector(callButtonPressed) forControlEvents:UIControlEventTouchUpInside];
+        [self addSubview:_callButton];
     }
     return self;
 }
@@ -138,6 +153,11 @@
 - (id)avatarView
 {
     return _avatarView;
+}
+
+- (void)callButtonPressed
+{
+    [_itemHandle requestAction:@"callTapped" options:nil];
 }
 
 - (void)makeNameFieldFirstResponder
@@ -199,6 +219,7 @@
             _lastNameField.hidden = false;
             _editingFirstNameSeparator.hidden = false;
             _editingLastNameSeparator.hidden = false;
+            _callButton.userInteractionEnabled = false;
             
             if (animated)
             {
@@ -206,6 +227,7 @@
                 {
                     _nameLabel.alpha = 0.0f;
                     _statusLabel.alpha = 0.0f;
+                    _callButton.alpha = 0.0f;
                     
                     _firstNameField.alpha = 1.0f;
                     _lastNameField.alpha = 1.0f;
@@ -217,6 +239,7 @@
             {
                 _nameLabel.alpha = 0.0f;
                 _statusLabel.alpha = 0.0f;
+                _callButton.alpha = 0.0f;
                 
                 _firstNameField.alpha = 1.0f;
                 _lastNameField.alpha = 1.0f;
@@ -228,12 +251,15 @@
         {
             [self endEditing:true];
             
+            _callButton.userInteractionEnabled = true;
+            
             if (animated)
             {
                 [UIView animateWithDuration:0.3 animations:^
                 {
                     _nameLabel.alpha = 1.0f;
                     _statusLabel.alpha = 1.0f;
+                    _callButton.alpha = 1.0f;
                     
                     _firstNameField.alpha = 0.0f;
                     _lastNameField.alpha = 0.0f;
@@ -254,6 +280,7 @@
             {
                 _nameLabel.alpha = 1.0f;
                 _statusLabel.alpha = 1.0f;
+                _callButton.alpha = 1.0f;
                 
                 _firstNameField.alpha = 0.0f;
                 _lastNameField.alpha = 0.0f;
@@ -413,18 +440,31 @@
     [self setNeedsLayout];
 }
 
+- (void)setShowCall:(bool)showCall
+{
+    _callButton.hidden = !showCall;
+    [self setNeedsLayout];
+}
+
 - (void)layoutSubviews
 {
     [super layoutSubviews];
     
     CGRect bounds = self.bounds;
     
-    _avatarView.frame = CGRectMake(15.0f + _avatarOffset.width, 15.0f + TGRetinaPixel + _avatarOffset.height, 66.0f, 66.0f);
+    _avatarView.frame = CGRectMake(15.0f + _avatarOffset.width, 16.0f + _avatarOffset.height, 66.0f, 66.0f);
+    
+    _callButton.frame = CGRectMake(self.frame.size.width - 57.0f, 25.0f, _callButton.frame.size.width, _callButton.frame.size.height);
     
     CGFloat maxNameWidth = bounds.size.width - 92 - 14;
+    CGFloat maxStatusWidth = bounds.size.width - 92 - 14;
     
     if (_verifiedIcon.superview != nil) {
         maxNameWidth -= _verifiedIcon.bounds.size.width + 5.0f;
+    }
+    if (!_callButton.hidden) {
+        maxNameWidth -= 54.0f;
+        maxStatusWidth -= 54.0f;
     }
     
     CGSize nameLabelSize = [_nameLabel sizeThatFits:CGSizeMake(maxNameWidth, 1000)];
@@ -432,7 +472,8 @@
     CGRect firstNameLabelFrame = CGRectMake(92 + _nameOffset.width, 26 + TGRetinaPixel + _nameOffset.height, nameLabelSize.width, nameLabelSize.height);
     _nameLabel.frame = firstNameLabelFrame;
     
-    CGSize statusLabelSize = [_statusLabel sizeThatFits:CGSizeMake(bounds.size.width - 92 - 14, 1000)];
+    CGSize statusLabelSize = [_statusLabel sizeThatFits:CGSizeMake(maxStatusWidth, 1000)];
+    statusLabelSize.width = MIN(statusLabelSize.width, maxStatusWidth);
     CGRect statusLabelFrame = CGRectMake(92 + _nameOffset.width, 53 + _nameOffset.height, statusLabelSize.width, statusLabelSize.height);
     if (!CGRectEqualToRect(statusLabelFrame, _statusLabel.frame))
         _statusLabel.frame = statusLabelFrame;
@@ -445,7 +486,7 @@
     CGRect lastNameFieldFrame = CGRectMake(fieldLeftPadding + 13.0f, 56 + TGRetinaPixel, bounds.size.width - fieldLeftPadding - 14.0f - 13.0f, 30);
     _lastNameField.frame = lastNameFieldFrame;
     
-    CGFloat separatorHeight = TGIsRetina() ? 0.5f : 1.0f;
+    CGFloat separatorHeight = TGScreenPixel;
     _editingFirstNameSeparator.frame = CGRectMake(fieldLeftPadding, 49.0f, bounds.size.width - fieldLeftPadding, separatorHeight);
     _editingLastNameSeparator.frame = CGRectMake(fieldLeftPadding, 88.0f, bounds.size.width - fieldLeftPadding, separatorHeight);
     

@@ -132,7 +132,7 @@ static id<PSCoding> readObject(uint8_t const **currentPtr, PSKeyValueDecoder *te
 
 static  void skipObject(uint8_t const **currentPtr)
 {
-    uint32_t objectLength = *((uint32_t *)currentPtr);
+    uint32_t objectLength = *((uint32_t *)(*currentPtr));
     (*currentPtr) += 4 + objectLength;
 }
 
@@ -346,6 +346,10 @@ static bool skipToValueForRawKey(PSKeyValueDecoder *self, uint8_t const *key, NS
             
             if (compareKeyLength != keyLength || memcmp(key, self->_currentPtr, keyLength))
             {
+                if (compareKeyLength > 1000) {
+                    return false;
+                }
+                
                 self->_currentPtr += compareKeyLength;
                 skipField(&self->_currentPtr);
                 

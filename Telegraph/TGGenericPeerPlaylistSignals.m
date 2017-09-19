@@ -51,7 +51,7 @@
     }];
 }
 
-- (NSArray *)itemListFromMessages:(NSArray *)messages
+- (NSArray *)itemListFromMessages:(NSArray *)messages voice:(bool)voice
 {
     NSMutableArray *items = [[NSMutableArray alloc] init];
     for (TGMessage *message in messages)
@@ -61,7 +61,7 @@
             author = [TGDatabaseInstance() loadUser:(int32_t)message.fromUid];
         }
         TGMusicPlayerItem *item = [TGMusicPlayerItem itemWithMessage:message author:author];
-        if (item != nil)
+        if (item != nil && item.isVoice == voice)
             [items addObject:item];
     }
     return items;
@@ -94,7 +94,7 @@
             }
         }] switchToLatest];
         
-        _cachedMediaDisposable = [[initialSignal then:[[TGSharedMediaCacheSignals cachedMediaForPeerId:peerId itemType:voice ? TGSharedMediaCacheItemTypeVoiceNote : TGSharedMediaCacheItemTypeAudio important:_important] filter:^bool (id next)
+        _cachedMediaDisposable = [[initialSignal then:[[TGSharedMediaCacheSignals cachedMediaForPeerId:peerId itemType:voice ? TGSharedMediaCacheItemTypeVoiceVideoMessage : TGSharedMediaCacheItemTypeAudio important:_important] filter:^bool (id next)
         {
             if ([next respondsToSelector:@selector(objectAtIndex:)])
             {
@@ -151,13 +151,12 @@
                     if (message.contentProperties[@"contentsRead"] == nil) {
                         NSMutableDictionary *contentProperties = [[NSMutableDictionary alloc] initWithDictionary:message.contentProperties];
                         contentProperties[@"contentsRead"] = [[TGMessageViewedContentProperty alloc] init];
-                        message.contentProperties = contentProperties;
                         
                         TGDatabaseAction action = { .type = TGDatabaseActionReadMessageContents, .subject = message.mid, .arg0 = 0, .arg1 = 0};
                         [TGDatabaseInstance() storeQueuedActions:[NSArray arrayWithObject:[[NSValue alloc] initWithBytes:&action objCType:@encode(TGDatabaseAction)]]];
                         [ActionStageInstance() requestActor:@"/tg/service/synchronizeactionqueue/(global)" options:nil watcher:TGTelegraphInstance];
                         
-                        [TGDatabaseInstance() updateMessage:message.mid peerId:message.cid withMessage:message];
+                        [TGDatabaseInstance() transactionUpdateMessages:@[[[TGDatabaseUpdateContentsRead alloc] initWithPeerId:message.cid messageId:message.mid]] updateConversationDatas:nil];
                         
                         [ActionStageInstance() dispatchResource:[NSString stringWithFormat:@"/tg/conversation/*/readmessageContents"] resource:@{@"messageIds": @[@(message.mid)]}];
                     }
@@ -176,7 +175,7 @@
     
     if (_updated)
     {
-        _updated([[TGMusicPlayerPlaylist alloc] initWithVoice:_voice items:[self itemListFromMessages:_currentMessages] itemKeyAliases:[[NSDictionary alloc] initWithDictionary:_currentItemKeyAliases] markItemAsViewed:^(TGMusicPlayerItem *item) {
+        _updated([[TGMusicPlayerPlaylist alloc] initWithVoice:_voice items:[self itemListFromMessages:_currentMessages voice:_voice] itemKeyAliases:[[NSDictionary alloc] initWithDictionary:_currentItemKeyAliases] markItemAsViewed:^(TGMusicPlayerItem *item) {
             [TGGenericPeerPlaylistHelper markItemAsViewed:item];
         }]);
     }
@@ -211,7 +210,7 @@
         [_currentMessages addObjectsFromArray:sortedMessages];
         if (_updated)
         {
-            _updated([[TGMusicPlayerPlaylist alloc] initWithVoice:_voice items:[self itemListFromMessages:_currentMessages] itemKeyAliases:[[NSDictionary alloc] initWithDictionary:_currentItemKeyAliases] markItemAsViewed:^(TGMusicPlayerItem *item) {
+            _updated([[TGMusicPlayerPlaylist alloc] initWithVoice:_voice items:[self itemListFromMessages:_currentMessages voice:_voice] itemKeyAliases:[[NSDictionary alloc] initWithDictionary:_currentItemKeyAliases] markItemAsViewed:^(TGMusicPlayerItem *item) {
                 [TGGenericPeerPlaylistHelper markItemAsViewed:item];
             }]);
         }
@@ -237,7 +236,7 @@
     
     if (_updated)
     {
-        _updated([[TGMusicPlayerPlaylist alloc] initWithVoice:_voice items:[self itemListFromMessages:_currentMessages] itemKeyAliases:[[NSDictionary alloc] initWithDictionary:_currentItemKeyAliases] markItemAsViewed:^(TGMusicPlayerItem *item) {
+        _updated([[TGMusicPlayerPlaylist alloc] initWithVoice:_voice items:[self itemListFromMessages:_currentMessages voice:_voice] itemKeyAliases:[[NSDictionary alloc] initWithDictionary:_currentItemKeyAliases] markItemAsViewed:^(TGMusicPlayerItem *item) {
             [TGGenericPeerPlaylistHelper markItemAsViewed:item];
         }]);
     }
@@ -260,7 +259,7 @@
     [_currentMessages addObjectsFromArray:sortedMessages];
     if (_updated)
     {
-        _updated([[TGMusicPlayerPlaylist alloc] initWithVoice:_voice items:[self itemListFromMessages:_currentMessages] itemKeyAliases:[[NSDictionary alloc] initWithDictionary:_currentItemKeyAliases] markItemAsViewed:^(TGMusicPlayerItem *item) {
+        _updated([[TGMusicPlayerPlaylist alloc] initWithVoice:_voice items:[self itemListFromMessages:_currentMessages voice:_voice] itemKeyAliases:[[NSDictionary alloc] initWithDictionary:_currentItemKeyAliases] markItemAsViewed:^(TGMusicPlayerItem *item) {
             [TGGenericPeerPlaylistHelper markItemAsViewed:item];
         }]);
     }
@@ -308,6 +307,18 @@
             [helper description]; //keep reference
         }];
     }];
+}
+
++ (SSignal *)playlistForItem:(TGMusicPlayerItem *)item voice:(bool)voice {
+    TGMusicPlayerPlaylist *playlist = [[TGMusicPlayerPlaylist alloc] initWithVoice:voice items:@[item] itemKeyAliases:@{} markItemAsViewed:^(__unused TGMusicPlayerItem *item) {
+    }];
+    return [SSignal single:playlist];
+}
+
++ (SSignal *)playlistForItemList:(NSArray<TGMusicPlayerItem *> *)itemList voice:(bool)voice {
+    TGMusicPlayerPlaylist *playlist = [[TGMusicPlayerPlaylist alloc] initWithVoice:voice items:itemList itemKeyAliases:@{} markItemAsViewed:^(__unused TGMusicPlayerItem *item) {
+    }];
+    return [SSignal single:playlist];
 }
 
 @end

@@ -304,7 +304,7 @@
 {
     [super layoutSubviews];
     
-    CGFloat separatorHeight = TGIsRetina() ? 0.5f : 1.0f;
+    CGFloat separatorHeight = TGScreenPixel;
     UIEdgeInsets insets = UIEdgeInsetsMake(8.0f, 65.0f, 6.0f, 10.0f);
     CGFloat editingOffset = self.editing ? [self editingInset] : 0.0f;
     
@@ -449,6 +449,24 @@
         UIView *alertViewHost = _alertViewHost;
         [actionSheet showInView:alertViewHost];
     }
+}
+
+- (NSURL *)urlForLocation:(CGPoint)location
+{
+    if (_links.count == 0)
+        return nil;
+    
+    NSInteger index = -1;
+    for (TGModernButton *listButton in _linkButtons)
+    {
+        index++;
+        if (CGRectContainsPoint(listButton.frame, location))
+        {
+            return [NSURL URLWithString:_links[index]];
+        }
+    }
+    
+    return [NSURL URLWithString:_links.firstObject];
 }
 
 @end

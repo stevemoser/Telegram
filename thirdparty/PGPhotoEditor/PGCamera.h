@@ -44,6 +44,7 @@ typedef enum
 @class PGCameraCaptureSession;
 @class PGCameraDeviceAngleSampler;
 @class TGCameraPreviewView;
+@class TGLiveUploadActorData;
 
 @interface PGCamera : NSObject
 
@@ -67,8 +68,11 @@ typedef enum
 
 @property (nonatomic, copy) void(^beganVideoRecording)(bool moment);
 @property (nonatomic, copy) void(^finishedVideoRecording)(bool moment);
+@property (nonatomic, copy) void(^reallyBeganVideoRecording)(bool moment);
 
 @property (nonatomic, copy) void(^captureInterrupted)(AVCaptureSessionInterruptionReason reason);
+
+@property (nonatomic, copy) void(^onAutoStartVideoRecording)(void);
 
 @property (nonatomic, copy) UIInterfaceOrientation(^requestedCurrentInterfaceOrientation)(bool *mirrored);
 
@@ -82,7 +86,9 @@ typedef enum
 @property (nonatomic, readonly) bool isCapturing;
 @property (nonatomic, readonly) NSTimeInterval videoRecordingDuration;
 
-- (instancetype)initWithPosition:(PGCameraPosition)position;
+@property (nonatomic, assign) bool autoStartVideoRecording;
+
+- (instancetype)initWithMode:(PGCameraMode)mode position:(PGCameraPosition)position;
 
 - (void)attachPreviewView:(TGCameraPreviewView *)previewView;
 
@@ -95,11 +101,11 @@ typedef enum
 - (void)setExposureTargetBias:(CGFloat)bias;
 - (void)endExposureTargetBiasChange;
 
-- (void)captureNextFrameForVideoThumbnail:(bool)forVideoThumbnail completion:(void (^)(UIImage * image))completion;
+- (void)captureNextFrameCompletion:(void (^)(UIImage * image))completion;
 
 - (void)takePhotoWithCompletion:(void (^)(UIImage *result, PGCameraShotMetadata *metadata))completion;
 
-- (void)startVideoRecordingForMoment:(bool)moment completion:(void (^)(NSURL *, CGAffineTransform transform, CGSize dimensions, NSTimeInterval duration, bool success))completion;
+- (void)startVideoRecordingForMoment:(bool)moment completion:(void (^)(NSURL *, CGAffineTransform transform, CGSize dimensions, NSTimeInterval duration, TGLiveUploadActorData *liveUploadData, bool success))completion;
 - (void)stopVideoRecording;
 - (bool)isRecordingVideo;
 
@@ -114,7 +120,7 @@ typedef enum
 - (bool)flashActive;
 - (bool)flashAvailable;
 
-- (void)togglePosition;
+- (PGCameraPosition)togglePosition;
 
 + (bool)cameraAvailable;
 + (bool)hasFrontCamera;

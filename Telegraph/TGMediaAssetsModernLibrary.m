@@ -1,5 +1,6 @@
 #import "TGMediaAssetsModernLibrary.h"
 #import "TGMediaAssetFetchResultChange.h"
+#import "TGMediaAssetMomentList.h"
 #import <MobileCoreServices/MobileCoreServices.h>
 
 @interface TGMediaAssetsModernLibrary () <PHPhotoLibraryChangeObserver>
@@ -54,6 +55,13 @@
             }
             
             [groups sortUsingFunction:TGMediaAssetGroupComparator context:nil];
+            
+            PHFetchOptions *options = [[PHFetchOptions alloc] init];
+            options.sortDescriptors = @[[NSSortDescriptor sortDescriptorWithKey:@"startDate" ascending:true]];
+            
+            //PHFetchResult *moments = [PHAssetCollection fetchAssetCollectionsWithType:PHAssetCollectionTypeMoment subtype:PHAssetCollectionSubtypeAny options:options];
+            //TGMediaAssetMomentList *momentList = [[TGMediaAssetMomentList alloc] initWithPHFetchResult:moments];
+            //[groups insertObject:momentList atIndex:0];
             
             return groups;
         }];

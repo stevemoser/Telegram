@@ -77,6 +77,7 @@
 - (NSArray *)keepMediaVariants
 {
     NSArray *values = @[//@(1 * 60 * 60 * 24),
+                        @(1 * 60 * 60 * 24 * 3),
                         @(1 * 60 * 60 * 24 * 7),
                         @(1 * 60 * 60 * 24 * 7 * 4),
                         @(INT_MAX)];
@@ -522,7 +523,7 @@
     
     _progressAlert = [[TGProgressAlert alloc] initWithFrame:self.view.bounds];
     _progressAlert.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    _progressAlert.text = NSLocalizedString(@"Cache.ClearProgress", nil);
+    _progressAlert.text = TGLocalized(@"Cache.ClearProgress");
     _progressAlert.alpha = 0.0f;
     [self.view addSubview:_progressAlert];
     [UIView animateWithDuration:0.3 animations:^

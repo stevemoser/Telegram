@@ -58,12 +58,12 @@
 
 - (NSString *)currentFirstName
 {
-    return (_updatingFirstName != nil || _updatingLastName != nil) ? _updatingFirstName : (_useRealName ? _user.realFirstName : _user.firstName);
+    return (_updatingFirstName != nil || _updatingLastName != nil) ? _updatingFirstName : (_useRealName ? _user.realFirstName : [_user.firstName stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]]);
 }
 
 - (NSString *)currentLastName
 {
-    return (_updatingFirstName != nil || _updatingLastName != nil) ? _updatingLastName : (_useRealName ? _user.realLastName : _user.lastName);
+    return (_updatingFirstName != nil || _updatingLastName != nil) ? _updatingLastName : (_useRealName ? _user.realLastName : [_user.lastName stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]]);
 }
 
 - (void)bindView:(TGUserInfoCollectionItemView *)view
@@ -104,6 +104,8 @@
     
     [view setEditing:_editing animated:false];
     
+    [view setShowCall:_showCall];
+    
     _firstBind = false;
 }
 
@@ -133,9 +135,14 @@
         if (!_disableAvatar)
         {
             if (_hasUpdatingAvatar)
-                [view setAvatarImage:_updatingAvatar animated:animated];
+            {
+                if (_updatingAvatar != nil)
+                    [view setAvatarImage:_updatingAvatar animated:animated];
+            }
             else
+            {
                 [view setAvatarUri:_user.photoUrlSmall animated:animated synchronous:false];
+            }
         }
         
         if (_automaticallyManageUserPresence)
@@ -206,6 +213,36 @@
     }
 }
 
+- (void)resetUpdatingAvatar:(NSString *)url
+{
+    _updatingAvatar = nil;
+    _hasUpdatingAvatar = false;
+    
+    if ([self boundView] != nil)
+    {
+        TGUserInfoCollectionItemView *view = (TGUserInfoCollectionItemView *)[self boundView];
+     
+        if (!_disableAvatar)
+        {
+            if (url != nil)
+                [view setAvatarUri:url animated:false synchronous:false];
+        }
+        
+        [view setUpdatingAvatar:_hasUpdatingAvatar animated:true];
+    }
+}
+
+- (void)setHasUpdatingAvatar:(bool)hasUpdatingAvatar
+{
+    _hasUpdatingAvatar = hasUpdatingAvatar;
+    
+    if ([self boundView] != nil)
+    {
+        TGUserInfoCollectionItemView *view = (TGUserInfoCollectionItemView *)[self boundView];
+        [view setUpdatingAvatar:_hasUpdatingAvatar animated:true];
+    }
+}
+
 - (bool)hasUpdatingAvatar
 {
     return _updatingAvatar;
@@ -227,12 +264,17 @@
     {
         if (accentColored != NULL)
             *accentColored = true;
-        return TGLocalizedStatic(@"Presence.online");
+        return TGLocalized(@"Presence.online");
     }
     if (presence.lastSeen != 0)
         return [TGDateUtils stringForRelativeLastSeen:presence.lastSeen];
     
     return TGLocalized(@"Presence.offline");
+}
+
+- (id)avatarView
+{
+    return [(TGUserInfoCollectionItemView *)[self boundView] avatarView];
 }
 
 - (id)visibleAvatarView
@@ -266,9 +308,15 @@
     return _editingLastName;
 }
 
+- (void)setShowCall:(bool)showCall
+{
+    _showCall = showCall;
+    [((TGUserInfoCollectionItemView *)self.view) setShowCall:showCall];
+}
+
 - (void)actionStageActionRequested:(NSString *)action options:(id)options
 {
-    if ([action isEqualToString:@"avatarTapped"])
+    if ([action isEqualToString:@"avatarTapped"] || [action isEqualToString:@"callTapped"])
     {
         [_interfaceHandle requestAction:action options:options];
     }

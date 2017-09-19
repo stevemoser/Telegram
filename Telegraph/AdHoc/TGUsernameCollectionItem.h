@@ -10,10 +10,15 @@
 @property (nonatomic) bool usernameValid;
 @property (nonatomic) bool usernameChecking;
 
+@property (nonatomic) bool autoCapitalize;
 @property (nonatomic) bool secureEntry;
 @property (nonatomic) UIKeyboardType keyboardType;
+@property (nonatomic) UIReturnKeyType returnKeyType;
+
+@property (nonatomic) CGFloat minimalInset;
 
 @property (nonatomic, copy) void (^usernameChanged)(NSString *);
+@property (nonatomic, copy) void (^returnPressed)(TGUsernameCollectionItem *);
 
 - (void)becomeFirstResponder;
 

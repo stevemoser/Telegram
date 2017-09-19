@@ -20,7 +20,8 @@ typedef enum {
     TGCommonMediaTypeStickers,
     TGCommonMediaTypeLocations,
     TGCommonMediaTypeContacts,
-    TGCommonMediaTypeGifs
+    TGCommonMediaTypeGifs,
+    TGCommonMediaTypeVideoMessages
 } TGCommonMediaType;
 
 @interface TGModernConversationForwardInputPanel ()
@@ -38,7 +39,7 @@ typedef enum {
 
 @implementation TGModernConversationForwardInputPanel
 
-- (TGCommonMediaType)commonMediaTypeForMessage:(TGMessage *)message
++ (TGCommonMediaType)commonMediaTypeForMessage:(TGMessage *)message
 {
     for (TGMediaAttachment *attachment in message.mediaAttachments)
     {
@@ -47,7 +48,12 @@ typedef enum {
         if ([attachment isKindOfClass:[TGAudioMediaAttachment class]])
             return TGCommonMediaTypeAudios;
         else if ([attachment isKindOfClass:[TGVideoMediaAttachment class]])
-            return TGCommonMediaTypeVideos;
+        {
+            if (((TGVideoMediaAttachment *)attachment).roundMessage)
+                return TGCommonMediaTypeVideoMessages;
+            else
+                return TGCommonMediaTypeVideos;
+        }
         else if ([attachment isKindOfClass:[TGLocationMediaAttachment class]])
             return TGCommonMediaTypeLocations;
         else if ([attachment isKindOfClass:[TGContactMediaAttachment class]])
@@ -73,7 +79,7 @@ typedef enum {
     return TGCommonMediaTypeTexts;
 }
 
-- (TGCommonMediaType)commonMediaTypeForMessages:(NSArray *)messages
++ (TGCommonMediaType)commonMediaTypeForMessages:(NSArray *)messages
 {
     TGCommonMediaType commonType = TGCommonMediaTypeNone;
     bool initialized = false;
@@ -92,7 +98,7 @@ typedef enum {
     return commonType;
 }
 
-- (NSString *)formatPrefixForCommonType:(TGCommonMediaType)commonType
++ (NSString *)formatPrefixForForwardedCommonType:(TGCommonMediaType)commonType
 {
     switch (commonType)
     {
@@ -116,10 +122,12 @@ typedef enum {
             return @"ForwardedLocations_";
         case TGCommonMediaTypeGifs:
             return @"ForwardedGifs_";
+        case TGCommonMediaTypeVideoMessages:
+            return @"ForwardedVideoMessages_";
     }
 }
 
-- (NSString *)textForMessages:(NSArray *)messages breakInTheMiddle:(bool *)breakInTheMiddle
++ (NSString *)textForMessages:(NSArray *)messages breakInTheMiddle:(bool *)breakInTheMiddle
 {
     TGCommonMediaType commonType = [self commonMediaTypeForMessages:messages];
     if (messages.count == 1)
@@ -127,6 +135,13 @@ typedef enum {
         switch (commonType)
         {
             case TGCommonMediaTypeTexts:
+                for (id media in ((TGMessage *)messages[0]).mediaAttachments) {
+                    if ([media isKindOfClass:[TGInvoiceMediaAttachment class]]) {
+                        return ((TGInvoiceMediaAttachment *)media).title;
+                    } else if ([media isKindOfClass:[TGGameMediaAttachment class]]) {
+                        return ((TGGameMediaAttachment *)media).title;
+                    }
+                }
                 return ((TGMessage *)messages[0]).text;
             case TGCommonMediaTypeFiles:
             {
@@ -143,12 +158,12 @@ typedef enum {
                 break;
         }
     }
-
-    NSString *formatPrefix = [TGStringUtils integerValueFormat:[self formatPrefixForCommonType:commonType] value:(int)messages.count];
+    
+    NSString *formatPrefix = [TGStringUtils integerValueFormat:[self formatPrefixForForwardedCommonType:commonType] value:(int)messages.count];
     return [[NSString alloc] initWithFormat:TGLocalized(formatPrefix), [[NSString alloc] initWithFormat:@"%d", (int)messages.count]];
 }
 
-- (NSString *)titleForPeer:(id)peer shortName:(bool)shortName {
++ (NSString *)titleForPeer:(id)peer shortName:(bool)shortName {
     if ([peer isKindOfClass:[TGUser class]]) {
         if (shortName) {
             return ((TGUser *)peer).displayFirstName;
@@ -161,7 +176,7 @@ typedef enum {
     return @"";
 }
 
-- (NSString *)titleForMessages:(NSArray *)messages
++ (NSString *)titleForMessages:(NSArray *)messages
 {
     NSMutableArray *peers = [[NSMutableArray alloc] init];
     for (TGMessage *message in messages)
@@ -246,11 +261,11 @@ typedef enum {
         _nameLabel.textColor = color;
         _nameLabel.font = TGSystemFontOfSize(14.5f);
         
-        _nameLabel.text = [self titleForMessages:messages];
+        _nameLabel.text = [TGModernConversationForwardInputPanel titleForMessages:messages];
         [self addSubview:_nameLabel];
         
         bool breakInTheMiddle = false;
-        NSString *text = [self textForMessages:messages breakInTheMiddle:&breakInTheMiddle];
+        NSString *text = [TGModernConversationForwardInputPanel textForMessages:messages breakInTheMiddle:&breakInTheMiddle];
         NSLineBreakMode lineBreakMode = breakInTheMiddle ? NSLineBreakByTruncatingMiddle : NSLineBreakByTruncatingTail;
         
         UIColor *mediaTextColor = UIColorRGB(0x8c8c92);
@@ -282,7 +297,7 @@ typedef enum {
 
 - (CGFloat)preferredHeight
 {
-    return 39.0f;
+    return 41.0f;
 }
 
 - (void)setSendAreaWidth:(CGFloat)sendAreaWidth attachmentAreaWidth:(CGFloat)attachmentAreaWidth
@@ -295,20 +310,23 @@ typedef enum {
 {
     [super layoutSubviews];
     
-    CGSize boundsSize = CGSizeMake(self.bounds.size.width, [self preferredHeight]);
-    
-    CGFloat leftPadding = 0.0f;
-    
-    CGSize nameSize = [_nameLabel.text sizeWithFont:_nameLabel.font];
-    nameSize.width = MIN(nameSize.width, boundsSize.width - _attachmentAreaWidth - 40.0f - _sendAreaWidth - leftPadding);
-    
-    CGSize contentLabelSize = [_contentLabel.text sizeWithFont:_contentLabel.font];
-    contentLabelSize.width = MIN(contentLabelSize.width, boundsSize.width - _attachmentAreaWidth - 40.0f - _sendAreaWidth - leftPadding);
-    
-    _closeButton.frame = CGRectMake(boundsSize.width - _sendAreaWidth - _closeButton.frame.size.width - 7.0f, 12.0f, _closeButton.frame.size.width, _closeButton.frame.size.height);
-    _lineView.frame = CGRectMake(_attachmentAreaWidth + 4.0f, 7.0f, 2.0f, boundsSize.height - 7.0f + 3.0f);
-    _nameLabel.frame = CGRectMake(_attachmentAreaWidth + 16.0f + leftPadding, 5.0f, CGCeil(nameSize.width), CGCeil(nameSize.height));
-    _contentLabel.frame = CGRectMake(_attachmentAreaWidth + 16.0f + leftPadding, 24.0f, CGCeil(contentLabelSize.width), CGCeil(contentLabelSize.height));
+    [UIView performWithoutAnimation:^
+    {
+        CGSize boundsSize = CGSizeMake(self.bounds.size.width, [self preferredHeight]);
+        
+        CGFloat leftPadding = 0.0f;
+        
+        CGSize nameSize = [_nameLabel.text sizeWithFont:_nameLabel.font];
+        nameSize.width = MIN(nameSize.width, boundsSize.width - _attachmentAreaWidth - 40.0f - _sendAreaWidth - leftPadding);
+        
+        CGSize contentLabelSize = [_contentLabel.text sizeWithFont:_contentLabel.font];
+        contentLabelSize.width = MIN(contentLabelSize.width, boundsSize.width - _attachmentAreaWidth - 40.0f - _sendAreaWidth - leftPadding);
+        
+        _closeButton.frame = CGRectMake(boundsSize.width - _sendAreaWidth - _closeButton.frame.size.width - 7.0f, 11.0f, _closeButton.frame.size.width, _closeButton.frame.size.height);
+        _lineView.frame = CGRectMake(_attachmentAreaWidth + 4.0f, 6.0f, 2.0f, boundsSize.height - 6.0f);
+        _nameLabel.frame = CGRectMake(_attachmentAreaWidth + 16.0f + leftPadding, 5.0f, CGCeil(nameSize.width), CGCeil(nameSize.height));
+        _contentLabel.frame = CGRectMake(_attachmentAreaWidth + 16.0f + leftPadding, 24.0f, CGCeil(contentLabelSize.width), CGCeil(contentLabelSize.height));
+    }];
 }
 
 @end

@@ -17,6 +17,8 @@
 
 #import "TGAppDelegate.h"
 
+#import "TGLocalization.h"
+
 @interface TGForwardContactsController : TGContactsController
 
 @property (nonatomic, strong) ASHandle *watcher;
@@ -42,6 +44,7 @@
     bool _targetMode;
     bool _privacyMode;
     bool _groupMode;
+    bool _dialogsMode;
 }
 
 @property (nonatomic) bool blockMode;
@@ -127,6 +130,11 @@
 
 - (id)initWithSelectPrivacyTarget:(NSString *)title placeholder:(NSString *)placeholder
 {
+    return [self initWithSelectPrivacyTarget:title placeholder:placeholder dialogs:false];
+}
+
+- (id)initWithSelectPrivacyTarget:(NSString *)title placeholder:(NSString *)placeholder dialogs:(bool)dialogs
+{
     self = [super init];
     if (self)
     {
@@ -147,11 +155,12 @@
         
         _controllerTitle = title;
         _privacyMode = true;
+        _dialogsMode = dialogs;
     }
     return self;
 }
 
-- (id)initWithSelectTarget
+- (id)initWithSelectTarget:(bool)showSecretChats
 {
     self = [super init];
     if (self)
@@ -160,6 +169,7 @@
         
         _dialogListCompanion = [[TGTelegraphDialogListCompanion alloc] init];
         _dialogListCompanion.forwardMode = true;
+        _dialogListCompanion.showSecretInForwardMode = showSecretChats;
         _dialogListCompanion.conversatioSelectedWatcher = _actionHandle;
         _dialogListController = [[TGDialogListController alloc] initWithCompanion:_dialogListCompanion];
         _dialogListController.customParentViewController = self;
@@ -174,6 +184,10 @@
         _targetMode = true;
     }
     return self;
+}
+
+- (id)initWithSelectTarget {
+    return [self initWithSelectTarget:true];
 }
 
 - (id)initWithSelectGroup
@@ -253,15 +267,7 @@
 
 - (NSString *)stringForMultipleFilesConfirmation:(NSUInteger)count
 {
-    NSString *formatString = TGLocalized(@"Forward.ConfirmMultipleFiles_any");
-    if (count == 1)
-        formatString = TGLocalized(@"Forward.ConfirmMultipleFiles_1");
-    else if (count == 2)
-        formatString = TGLocalized(@"Forward.ConfirmMultipleFiles_2");
-    else if (count >= 3 && count <= 10)
-        formatString = TGLocalized(@"Forward.ConfirmMultipleFiles_3_10");
-    
-    return [[NSString alloc] initWithFormat:formatString, [[NSString alloc] initWithFormat:@"%d", (int)count]];
+    return [effectiveLocalization() getPluralized:@"Forward.ConfirmMultipleFiles" count:(int32_t)count];
 }
 
 - (id)initWithDocumentFiles:(NSArray *)fileDescs
@@ -359,7 +365,7 @@
             [_toolbarContainerView addSubview:backgroundView];
             
             UIView *stripeView = [[UIView alloc] init];
-            stripeView.frame = CGRectMake(0.0f, 0.0f, _toolbarContainerView.frame.size.width, TGIsRetina() ? 0.5f : 1.0f);
+            stripeView.frame = CGRectMake(0.0f, 0.0f, _toolbarContainerView.frame.size.width, TGScreenPixel);
             stripeView.backgroundColor = UIColorRGB(0xb2b2b2);
             stripeView.autoresizingMask = UIViewAutoresizingFlexibleWidth;
             [_toolbarContainerView addSubview:stripeView];
@@ -384,7 +390,7 @@
         
         [_toolbarContainerView addSubview:_segmentedControl];
         
-        if (_privacyMode)
+        if (_privacyMode && !_dialogsMode)
         {
             [self setCurrentViewController:_contactsController];
             [_segmentedControl setSelectedSegmentIndex:1];
@@ -568,7 +574,7 @@
             
             if (_targetMode)
             {
-                if (conversation.isChat)
+                if (conversation.isChat || conversation.isChannel || conversation.isChannelGroup)
                     [_watcherHandle requestAction:@"conversationSelected" options:conversation];
                 else
                 {
@@ -590,23 +596,20 @@
                         NSString *alertText = nil;
                         if (_privacyMode)
                         {
-                            NSString *formatString = TGLocalized(@"PrivacyLastSeenSettings.AddUsers_any");
-                            if (conversation.chatParticipants.chatParticipantUids.count == 1)
-                                formatString = TGLocalized(@"PrivacyLastSeenSettings.AddUsers_1");
-                            else if (conversation.chatParticipants.chatParticipantUids.count == 2)
-                                formatString = TGLocalized(@"PrivacyLastSeenSettings.AddUsers_2");
-                            else if (conversation.chatParticipants.chatParticipantUids.count >= 3 && conversation.chatParticipants.chatParticipantUids.count <= 10)
-                                formatString = TGLocalized(@"PrivacyLastSeenSettings.AddUsers_3_10");
-                            
-                            alertText = [NSString stringWithFormat:formatString, @(conversation.chatParticipants.chatParticipantUids.count)];
+                            NSString *alertText = [effectiveLocalization() getPluralized:@"PrivacyLastSeenSettings.AddUsers" count:(int32_t)conversation.chatParticipants.chatParticipantUids.count];
                             
                             _currentAlert = [[TGAlertView alloc] initWithTitle:nil message:alertText delegate:self cancelButtonTitle:TGLocalized(@"Common.No") otherButtonTitles:TGLocalized(@"Common.Yes"), nil];
                             [_currentAlert show];
                         }
                         else
                         {
-                            if (_blockMode)
-                                alertText = [NSString stringWithFormat:@"%@\"%@\"?", TGLocalized(@"BlockedUsers.LeavePrefix"), conversation.chatTitle];
+                            if (_blockMode) {
+                                NSString *prefix = TGLocalized(@"BlockedUsers.LeavePrefix");
+                                if ([prefix rangeOfString:@" "].location == NSNotFound) {
+                                    prefix = [prefix stringByAppendingString:@" "];
+                                }
+                                alertText = [NSString stringWithFormat:@"%@\"%@\"?", prefix, conversation.chatTitle];
+                            }
                             else if (_confirmationCustomFormat != nil)
                                 alertText = [[NSString alloc] initWithFormat:_confirmationCustomFormat, conversation.chatTitle];
                             else
@@ -701,8 +704,9 @@
     if (watcher != nil && [watcher respondsToSelector:@selector(actionStageActionRequested:options:)])
         [watcher actionStageActionRequested:@"willForwardMessages" options:[[NSDictionary alloc] initWithObjectsAndKeys:self, @"controller", _selectedTarget, @"target", nil]];
     
-    if (watcher == nil)
+    if (watcher == nil || _doNothing) {
         [self dismissSelf];
+    }
  
     if (!_groupMode)
     {
@@ -724,12 +728,20 @@
             if ([_selectedTarget isKindOfClass:[TGUser class]])
             {
                 TGUser *user = (TGUser *)_selectedTarget;
-                [[TGInterfaceManager instance] navigateToConversationWithId:user.uid conversation:nil performActions:@{@"forwardMessages": [NSArray arrayWithArray:_forwardMessages], @"sendMessages": [NSArray arrayWithArray:_sendMessages], @"sendFiles": _documentFileUrl == nil ? @[] : @[@{@"url": _documentFileUrl}], @"shareLink": _shareLink == nil ? @{} : _shareLink} animated:false];
+                NSMutableDictionary *dict = [[NSMutableDictionary alloc] initWithDictionary:@{@"forwardMessages": [NSArray arrayWithArray:_forwardMessages], @"sendMessages": [NSArray arrayWithArray:_sendMessages], @"sendFiles": _documentFileUrl == nil ? @[] : @[@{@"url": _documentFileUrl}], @"shareLink": _shareLink == nil ? @{} : _shareLink}];
+                if (_shareLink[@"text"] != nil && [_shareLink[@"replace"] boolValue]) {
+                    dict[@"replaceInitialText"] = _shareLink[@"text"];
+                }
+                [[TGInterfaceManager instance] navigateToConversationWithId:user.uid conversation:nil performActions:dict atMessage:nil clearStack:true openKeyboard:[_shareLink[@"replace"] boolValue]canOpenKeyboardWhileInTransition:false animated:true];
             }
             else if ([_selectedTarget isKindOfClass:[TGConversation class]])
             {
                 TGConversation *conversation = (TGConversation *)_selectedTarget;
-                [[TGInterfaceManager instance] navigateToConversationWithId:conversation.conversationId conversation:nil performActions:@{@"forwardMessages": [NSArray arrayWithArray:_forwardMessages], @"sendMessages": [NSArray arrayWithArray:_sendMessages], @"sendFiles": _documentFileUrl == nil ? @[] : @[@{@"url": _documentFileUrl}], @"shareLink": _shareLink == nil ? @{} : _shareLink} animated:false];
+                NSMutableDictionary *dict = [[NSMutableDictionary alloc] initWithDictionary:@{@"forwardMessages": [NSArray arrayWithArray:_forwardMessages], @"sendMessages": [NSArray arrayWithArray:_sendMessages], @"sendFiles": _documentFileUrl == nil ? @[] : @[@{@"url": _documentFileUrl}], @"shareLink": _shareLink == nil ? @{} : _shareLink}];
+                if (_shareLink[@"text"] != nil && [_shareLink[@"replace"] boolValue]) {
+                    dict[@"replaceInitialText"] = _shareLink[@"text"];
+                }
+                [[TGInterfaceManager instance] navigateToConversationWithId:conversation.conversationId conversation:nil performActions:dict atMessage:nil clearStack:true openKeyboard:[_shareLink[@"replace"] boolValue]canOpenKeyboardWhileInTransition:false animated:true];
             }
         }
     }

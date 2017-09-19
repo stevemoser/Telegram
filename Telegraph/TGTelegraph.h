@@ -25,9 +25,13 @@
 #import <SSignalKit/SSignalKit.h>
 #import "TGDialogListRemoteOffset.h"
 
+#import "TGCallManager.h"
+
+#import "MediaBox.h"
+
 #ifdef __cplusplus
 #include <map>
-#include <tr1/memory>
+#include <memory>
 #endif
 
 @protocol TGTransport;
@@ -64,7 +68,6 @@
 @class TGUpdateUserStatusesActor;
 
 @class TGConversationHistoryAsyncRequestActor;
-@class TGConversationReadHistoryActor;
 @class TGConversationActivityRequestBuilder;
 @class TGPushActionsRequestBuilder;
 @class TGLongPollingRequestBuilder;
@@ -127,6 +130,11 @@ extern TGTelegraph *TGTelegraphInstance;
 @property (nonatomic, strong, readonly) SMulticastSignalManager *genericTasksSignalManager;
 @property (nonatomic, strong, readonly) SMulticastSignalManager *channelStatesSignalManager;
 @property (nonatomic, strong, readonly) SDisposableSet *disposeOnLogout;
+@property (nonatomic, strong, readonly) SMetaDisposable *checkLocalizationDisposable;
+@property (nonatomic) bool checkedLocalization;
+
+@property (nonatomic, strong, readonly) TGCallManager *callManager;
+@property (nonatomic, strong, readonly) MediaBox *mediaBox;
 
 - (void)cancelRequestByToken:(NSObject *)token;
 - (void)cancelRequestByToken:(NSObject *)token softCancel:(bool)softCancel;
@@ -140,6 +148,9 @@ extern TGTelegraph *TGTelegraphInstance;
 - (int)serviceUserUid;
 - (int)createServiceUserIfNeeded;
 
+- (int)voipSupportUserUid;
+- (int)createVoipSupportUserIfNeeded;
+
 - (void)locationTranslationSettingsUpdated;
 
 - (void)stateUpdateRequired;
@@ -149,7 +160,7 @@ extern TGTelegraph *TGTelegraphInstance;
 - (void)dispatchUserDataChanges:(TGUser *)user changes:(int)changes;
 - (void)dispatchUserPresenceChanges:(int64_t)userId presence:(TGUserPresence)presence;
 #ifdef __cplusplus
-- (void)dispatchMultipleUserPresenceChanges:(std::tr1::shared_ptr<std::map<int, TGUserPresence> >)presenceMap;
+- (void)dispatchMultipleUserPresenceChanges:(std::shared_ptr<std::map<int, TGUserPresence> >)presenceMap;
 #endif
 - (void)dispatchUserActivity:(int)uid inConversation:(int64_t)conversationId type:(NSString *)type;
 - (NSDictionary *)typingUserActivitiesInConversationFromMainThread:(int64_t)conversationId;
@@ -161,15 +172,13 @@ extern TGTelegraph *TGTelegraphInstance;
 - (id)doGetAppPrefs:(TGSynchronizePreferencesActor *)actor;
 
 - (NSObject *)doRequestRawHttp:(NSString *)url maxRetryCount:(int)maxRetryCount acceptCodes:(NSArray *)acceptCodes actor:(id<TGRawHttpActor>)actor;
-- (NSObject *)doRequestRawHttp:(NSString *)url maxRetryCount:(int)maxRetryCount acceptCodes:(NSArray *)acceptCodes httpAuth:(NSString *)httpAuth actor:(id<TGRawHttpActor>)actor;
-- (NSObject *)doRequestRawHttp:(NSString *)url maxRetryCount:(int)maxRetryCount acceptCodes:(NSArray *)acceptCodes httpAuth:(NSString *)httpAuth expectedFileSize:(NSInteger)expectedFileSize actor:(id<TGRawHttpActor>)actor;
-- (NSObject *)doRequestRawHttp:(NSString *)url maxRetryCount:(int)maxRetryCount acceptCodes:(NSArray *)acceptCodes httpAuth:(NSString *)httpAuth expectedFileSize:(NSInteger)expectedFileSize progressBlock:(void (^)(float progress))progressBlock completionBlock:(void (^)(NSData *response))completionBlock;
+- (NSObject *)doRequestRawHttp:(NSString *)url maxRetryCount:(int)maxRetryCount acceptCodes:(NSArray *)acceptCodes httpHeaders:(NSDictionary *)httpHeaders actor:(id<TGRawHttpActor>)actor;
+- (NSObject *)doRequestRawHttp:(NSString *)url maxRetryCount:(int)maxRetryCount acceptCodes:(NSArray *)acceptCodes httpHeaders:(NSDictionary *)httpHeaders expectedFileSize:(NSInteger)expectedFileSize actor:(id<TGRawHttpActor>)actor;
+- (NSObject *)doRequestRawHttp:(NSString *)url maxRetryCount:(int)maxRetryCount acceptCodes:(NSArray *)acceptCodes httpHeaders:(NSDictionary *)httpHeaders expectedFileSize:(NSInteger)expectedFileSize progressBlock:(void (^)(float progress))progressBlock completionBlock:(void (^)(NSData *response))completionBlock;
 - (NSObject *)doRequestRawHttpFile:(NSString *)url actor:(id<TGRawHttpFileActor>)actor;
 
 - (NSObject *)doUploadFilePart:(int64_t)fileId partId:(int)partId data:(NSData *)data actor:(id<TGFileUploadActor>)actor;
 - (NSObject *)doUploadBigFilePart:(int64_t)fileId partId:(int)partId data:(NSData *)data totalParts:(int)totalParts actor:(id<TGFileUploadActor>)actor;
-- (NSObject *)doDownloadFile:(int)datacenterId volumeId:(int64_t)volumeId fileId:(int)fileId secret:(int64_t)secret actor:(id<TGFileDownloadActor>)actor;
-- (id)doDownloadFilePart:(int)datacenterId location:(TLInputFileLocation *)location offset:(int)offset length:(int)length actor:(id<TGFileDownloadActor>)actor;
 
 - (NSObject *)doSendConfirmationCode:(NSString *)phoneNumber requestBuilder:(TGSendCodeRequestBuilder *)requestBuilder;
 - (NSObject *)doSendConfirmationSms:(NSString *)phoneNumber phoneHash:(NSString *)phoneHash requestBuilder:(TGSendCodeRequestBuilder *)requestBuilder;
@@ -204,9 +213,6 @@ extern TGTelegraph *TGTelegraphInstance;
 - (NSObject *)doLocateContacts:(double)latitude longitude:(double)longitude radius:(int)radius discloseLocation:(bool)discloseLocation actor:(id<TGLocateContactsProtocol>)actor;
 - (NSObject *)doSearchContacts:(NSString *)query limit:(int)limit actor:(TGContactsGlobalSearchActor *)actor;
 - (NSObject *)doSearchContactsByName:(NSString *)query limit:(int)limit completion:(void (^)(TLcontacts_Found *))completion;
-- (NSObject *)doSendContactRequest:(int)uid actor:(TGContactRequestActionActor *)actor;
-- (NSObject *)doAcceptContactRequest:(int)uid actor:(TGContactRequestActionActor *)actor;
-- (NSObject *)doDeclineContactRequest:(int)uid actor:(TGContactRequestActionActor *)actor;
 - (NSObject *)doDeleteContacts:(NSArray *)uids actor:(id<TGContactDeleteActorProtocol>)actor;
 
 - (NSObject *)doRequestDialogsListWithOffset:(TGDialogListRemoteOffset *)offset limit:(int)limit requestBuilder:(TGDialogListRequestBuilder *)requestBuilder;
@@ -214,9 +220,7 @@ extern TGTelegraph *TGTelegraphInstance;
 - (NSObject *)doRequestConversationHistory:(int64_t)conversationId accessHash:(int64_t)accessHash maxMid:(int)maxMid orOffset:(int)offset limit:(int)limit actor:(TGConversationHistoryAsyncRequestActor *)actor;
 - (NSObject *)doRequestConversationMediaHistory:(int64_t)conversationId accessHash:(int64_t)accessHash maxMid:(int)maxMid maxDate:(int)maxDate limit:(int)limit actor:(TGUpdateMediaHistoryActor *)actor;
 - (NSObject *)doConversationSendMessage:(int64_t)conversationId accessHash:(int64_t)accessHash messageText:(NSString *)messageText messageGuid:(NSString *)messageGuid tmpId:(int64_t)tmpId replyMessageId:(int32_t)replyMessageId disableLinkPreviews:(bool)disableLinkPreviews postAsChannel:(bool)postAsChannel notifyMembers:(bool)notifyMembers entities:(NSArray *)entities actor:(TGModernSendCommonMessageActor *)actor;
-- (NSObject *)doBroadcastSendMessage:(NSArray *)userIds messageText:(NSString *)messageText geo:(TLInputGeoPoint *)geo tmpId:(int64_t)tmpId actor:(TGModernSendBroadcastMessageActor *)actor;
 - (NSObject *)doConversationSendLocation:(int64_t)conversationId accessHash:(int64_t)accessHash latitude:(double)latitude longitude:(double)longitude venue:(TGVenueAttachment *)venue messageGuid:(NSString *)messageGuid tmpId:(int64_t)tmpId replyMessageId:(int32_t)replyMessageId postAsChannel:(bool)postAsChannel notifyMembers:(bool)notifyMembers actor:(TGModernSendCommonMessageActor *)actor;
-- (NSObject *)doBroadcastSendMedia:(NSArray *)userIds media:(TLInputMedia *)media tmpId:(int64_t)__unused tmpId actor:(TGModernSendBroadcastMessageActor *)actor;
 - (NSObject *)doConversationSendMedia:(int64_t)conversationId accessHash:(int64_t)accessHash media:(TLInputMedia *)media messageGuid:(NSString *)messageGuid tmpId:(int64_t)tmpId replyMessageId:(int32_t)replyMessageId postAsChannel:(bool)postAsChannel notifyMembers:(bool)notifyMembers actor:(TGModernSendCommonMessageActor *)actor;
 - (NSObject *)doConversationBotContextResult:(int64_t)conversationId accessHash:(int64_t)accessHash botContextResult:(TGBotContextResultAttachment *)botContextResult tmpId:(int64_t)tmpId replyMessageId:(int32_t)replyMessageId postAsChannel:(bool)postAsChannel notifyMembers:(bool)notifyMembers actor:(TGModernSendCommonMessageActor *)actor;
 - (NSObject *)doConversationForwardMessage:(int64_t)conversationId accessHash:(int64_t)accessHash messageId:(int)messageId fromPeer:(int64_t)fromPeer fromPeerAccessHash:(int64_t)fromPeerAccessHash postAsChannel:(bool)postAsChannel notifyMembers:(bool)notifyMembers tmpId:(int64_t)tmpId actor:(TGModernSendCommonMessageActor *)actor;
@@ -229,7 +233,7 @@ extern TGTelegraph *TGTelegraphInstance;
 - (NSObject *)doAddConversationMember:(int64_t)conversationId uid:(int)uid actor:(TGConversationAddMemberRequestActor *)actor;
 - (NSObject *)doDeleteConversationMember:(int64_t)conversationId uid:(int)uid actor:(id<TGDeleteChatMemberProtocol>)actor;
 - (NSObject *)doDeleteMessages:(NSArray *)messageIds actor:(TGSynchronizeActionQueueActor *)actor;
-- (NSObject *)doDeleteConversation:(int64_t)conversationId accessHash:(int64_t)accessHash offset:(int)offset actor:(TGSynchronizeActionQueueActor *)actor;
+- (NSObject *)doDeleteConversation:(int64_t)conversationId onlyClear:(bool)onlyClear maxId:(int32_t)maxId accessHash:(int64_t)accessHash offset:(int)offset actor:(TGSynchronizeActionQueueActor *)actor;
 
 - (NSObject *)doRequestTimeline:(int)timelineId maxItemId:(int64_t)maxItemId limit:(int)limit actor:(TGTimelineHistoryRequestBuilder *)actor;
 - (NSObject *)doUploadTimelinePhoto:(id)inputFile hasLocation:(bool)hasLocation latitude:(double)latitude longitude:(double)longitude actor:(TGTimelineUploadPhotoRequestBuilder *)actor;
@@ -262,7 +266,7 @@ extern TGTelegraph *TGTelegraphInstance;
 - (id)doReportQtsReceived:(int32_t)qts actor:(TGReportDeliveryActor *)actor;
 
 - (id)doRequestInviteText:(TGUpdateConfigActor *)actor;
-- (id)doDownloadMessages:(NSArray *)mids actor:(TGDownloadMessagesActor *)actor;
+- (id)doDownloadMessages:(NSArray *)mids peerId:(int64_t)peerId accessHash:(int64_t)accessHash actor:(TGDownloadMessagesActor *)actor;
 
 - (id)doRequestPrefferredSuportPeer:(void (^)(TLhelp_Support *supportDesc))completion fail:(void (^)())fail;
 
@@ -272,5 +276,6 @@ extern TGTelegraph *TGTelegraphInstance;
 - (TLInputUser *)createInputUserForUid:(int)uid;
 
 - (NSString *)currentDeviceModel;
+- (NSString *)langCode;
 
 @end

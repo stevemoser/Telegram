@@ -11,7 +11,6 @@
     value.highlightsColor = self.highlightsColor;
     value.highlightsIntensity = self.highlightsIntensity;
     value.editingHighlights = self.editingHighlights;
-    value.editingIntensity = self.editingIntensity;
     
     return value;
 }
@@ -25,6 +24,31 @@
     value.highlightsIntensity = self.highlightsIntensity;
     
     return value;
+}
+
+- (BOOL)isEqual:(id)object
+{
+    if (object == self)
+        return true;
+    
+    if (!object || ![object isKindOfClass:[self class]])
+        return false;
+    
+    PGTintToolValue *value = (PGTintToolValue *)object;
+    
+    if (![value.shadowsColor isEqual:self.shadowsColor])
+        return false;
+    
+    if (value.shadowsIntensity != self.shadowsIntensity)
+        return false;
+    
+    if (![value.highlightsColor isEqual:self.highlightsColor])
+        return false;
+    
+    if (value.highlightsIntensity != self.highlightsIntensity)
+        return false;
+        
+    return true;
 }
 
 @end
@@ -75,7 +99,7 @@
     return [UIImage imageNamed:@"PhotoEditorTintTool"];
 }
 
-- (UIView <TGPhotoEditorToolView> *)itemControlViewWithChangeBlock:(void (^)(id, bool))changeBlock
+- (UIView <TGPhotoEditorToolView> *)itemControlViewWithChangeBlock:(void (^)(id, bool))changeBlock explicit:(bool)explicit nameWidth:(CGFloat)__unused nameWidth
 {
     __weak PGTintTool *weakSelf = self;
     
@@ -86,10 +110,16 @@
         if (strongSelf == nil)
             return;
         
-        if ([strongSelf.tempValue isEqual:newValue])
+        if (!explicit && [strongSelf.tempValue isEqual:newValue])
             return;
         
-        strongSelf.tempValue = newValue;
+        if (explicit && [strongSelf.value isEqual:newValue])
+            return;
+        
+        if (!explicit)
+            strongSelf.tempValue = newValue;
+        else
+            strongSelf.value = newValue;
         
         if (changeBlock != nil)
             changeBlock(newValue, animated);
@@ -137,6 +167,15 @@
     CGFloat highlightsIntensity = [value.highlightsColor isEqual:[UIColor clearColor]] ? 0 : value.highlightsIntensity;
     [_highlightsIntensityParameter setFloatValue:highlightsIntensity / 100.0f];
 }
+
+- (NSString *)stringValue
+{
+    if (![self shouldBeSkipped])
+        return @"◆";
+    
+    return nil;
+}
+
 
 - (NSString *)ancillaryShaderString
 {
@@ -188,6 +227,11 @@
          result.rgb = tintHighlights(result.rgb, highlightsTintColor, highlightsTintIntensity * 2.0);
      }
     );
+}
+
+- (bool)isSimple
+{
+    return false;
 }
 
 @end

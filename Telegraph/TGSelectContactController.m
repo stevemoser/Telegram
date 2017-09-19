@@ -46,6 +46,7 @@
 @property (nonatomic) bool createBroadcast;
 @property (nonatomic) bool createChannel;
 @property (nonatomic) bool inviteToChannel;
+@property (nonatomic) bool call;
 
 @property (nonatomic, strong) TGProgressWindow *progressWindow;
 
@@ -57,6 +58,11 @@
 
 - (id)initWithCreateGroup:(bool)createGroup createEncrypted:(bool)createEncrypted createBroadcast:(bool)createBroadcast createChannel:(bool)createChannel inviteToChannel:(bool)inviteToChannel showLink:(bool)showLink
 {
+    return [self initWithCreateGroup:createGroup createEncrypted:createEncrypted createBroadcast:createBroadcast createChannel:createChannel inviteToChannel:inviteToChannel showLink:showLink call:false];
+}
+
+- (id)initWithCreateGroup:(bool)createGroup createEncrypted:(bool)createEncrypted createBroadcast:(bool)createBroadcast createChannel:(bool)createChannel inviteToChannel:(bool)inviteToChannel showLink:(bool)showLink call:(bool)call
+{
     int contactsMode = TGContactsModeRegistered;
     if (createEncrypted)
     {
@@ -67,6 +73,7 @@
         _createBroadcast = createBroadcast;
         _createChannel = createChannel;
         _inviteToChannel = inviteToChannel;
+        _call = call;
         
         if (createGroup)
             contactsMode |= TGContactsModeCompose;
@@ -76,10 +83,13 @@
                 contactsMode |= TGContactsModeCreateGroupLink | TGContactsModeManualFirstSection;
             }
         }
-        else
+        else if (!call)
         {
             contactsMode |= TGContactsModeCreateGroupOption;
         }
+        
+        if (call)
+            contactsMode |= TGContactsModeCalls;
         
         if ([[UIDevice currentDevice] userInterfaceIdiom] == UIUserInterfaceIdiomPad)
         {
@@ -110,6 +120,10 @@
 #if TARGET_IPHONE_SIMULATOR
             //self.usersSelectedLimit = 10;
 #endif
+            
+            if (createEncrypted || call) {
+                self.ignoreBots = true;
+            }
             
             _displayUserCountLimit = self.usersSelectedLimit + 1;
             
@@ -308,6 +322,10 @@
     {
         self.titleText = TGLocalized(@"Compose.NewEncryptedChat");
     }
+    else if (_call)
+    {
+        self.titleText = TGLocalized(@"Calls.NewCall");
+    }
     else
     {
         self.titleText = TGLocalized(@"Compose.NewMessage");
@@ -423,6 +441,11 @@
         
         static int actionId = 0;
         [ActionStageInstance() requestActor:[[NSString alloc] initWithFormat:@"/tg/encrypted/createChat/(profile%d)", actionId++] options:@{@"uid": @(user.uid)} flags:0 watcher:self];
+    }
+    else if (_call)
+    {
+        if (self.onCall != nil)
+            self.onCall(user);
     }
     else
     {

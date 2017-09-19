@@ -25,6 +25,9 @@
 #import "TGMessageEntitiesAttachment.h"
 #import "TGBotContextResultAttachment.h"
 #import "TGViaUserAttachment.h"
+#import "TGGameMediaAttachment.h"
+#import "TGInvoiceMediaAttachment.h"
+#import "TGAuthorSignatureMediaAttachment.h"
 
 #import "TGMessageViewCountContentProperty.h"
 
@@ -192,7 +195,8 @@ static inline TGMessageSortKey TGTaggedMessageSortKeyExtract(NSData *data, int32
 
 @property (nonatomic) int32_t pts;
 
-@property (nonatomic) bool unread;
+//@property (nonatomic, readonly) bool unread;
+@property (nonatomic) bool hintUnread;
 @property (nonatomic) bool outgoing;
 @property (nonatomic) TGMessageDeliveryState deliveryState;
 @property (nonatomic) int64_t fromUid;
@@ -226,20 +230,25 @@ static inline TGMessageSortKey TGTaggedMessageSortKeyExtract(NSData *data, int32
 @property (nonatomic) bool forceReply;
 
 @property (nonatomic) bool isSilent;
+@property (nonatomic) bool isEdited;
 
 @property (nonatomic, strong) TGMessageViewCountContentProperty *viewCount;
 
 @property (nonatomic, strong) NSArray *entities;
+@property (nonatomic, strong, readonly) NSString *authorSignature;
+@property (nonatomic, strong, readonly) NSString *forwardAuthorSignature;
 
 @property (nonatomic, strong) NSDictionary *contentProperties;
 
 @property (nonatomic, strong) TGMessageHole *hole;
 @property (nonatomic, strong) TGMessageGroup *group;
 
+- (NSArray *)effectiveTextAndEntities;
+
 - (bool)local;
 
 + (void)registerMediaAttachmentParser:(int)type parser:(id<TGMediaAttachmentParser>)parser;
-+ (NSArray *)textCheckingResultsForText:(NSString *)text highlightMentionsAndTags:(bool)highlightMentionsAndTags highlightCommands:(bool)highlightCommands;
++ (NSArray *)textCheckingResultsForText:(NSString *)text highlightMentionsAndTags:(bool)highlightMentionsAndTags highlightCommands:(bool)highlightCommands entities:(NSArray *)entities;
 + (NSArray *)entitiesForMarkedUpText:(NSString *)text resultingText:(__autoreleasing NSString **)resultingText;
 
 - (NSData *)serializeMediaAttachments:(bool)includeMeta;
@@ -252,6 +261,11 @@ static inline TGMessageSortKey TGTaggedMessageSortKeyExtract(NSData *data, int32
 + (NSData *)serializeContentProperties:(NSDictionary *)contentProperties;
 + (NSDictionary *)parseContentProperties:(NSData *)data;
 
+- (void)removeReplyAndMarkup;
+
+- (void)filterOutExpiredMedia;
+- (bool)hasExpiredMedia;
+
 @end
 
 @interface TGMediaId : NSObject <NSCopying>
@@ -260,6 +274,12 @@ static inline TGMessageSortKey TGTaggedMessageSortKeyExtract(NSData *data, int32
 @property (nonatomic, readonly) int64_t itemId;
 
 - (id)initWithType:(uint8_t)type itemId:(int64_t)itemId;
+
+@end
+
+@interface NSTextCheckingResult (TGMessage)
+
+- (bool)isTelegramHiddenLink;
 
 @end
 

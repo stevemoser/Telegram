@@ -36,6 +36,11 @@
 #import "TGPeerIdAdapter.h"
 #import "TGProgressWindow.h"
 
+#import "TGModernGalleryController.h"
+#import "TGGroupAvatarGalleryModel.h"
+
+#import "TGLocalization.h"
+
 typedef enum {
     TGGroupParticipationStatusMember = 0,
     TGGroupParticipationStatusLeft = 1,
@@ -63,9 +68,9 @@ typedef enum {
 
 @implementation TGGroupModernConversationCompanion
 
-- (instancetype)initWithConversationId:(int64_t)conversationId conversation:(TGConversation *)conversation userActivities:(NSDictionary *)userActivities mayHaveUnreadMessages:(bool)mayHaveUnreadMessages
+- (instancetype)initWithConversation:(TGConversation *)conversation userActivities:(NSDictionary *)userActivities mayHaveUnreadMessages:(bool)mayHaveUnreadMessages
 {
-    self = [super initWithConversationId:conversationId mayHaveUnreadMessages:mayHaveUnreadMessages];
+    self = [super initWithConversation:conversation mayHaveUnreadMessages:mayHaveUnreadMessages];
     if (self != nil)
     {
         _conversation = conversation;
@@ -80,26 +85,12 @@ typedef enum {
 
 - (NSString *)stringForMemberCount:(int)memberCount
 {
-    if (memberCount == 1)
-        return TGLocalizedStatic(@"Conversation.StatusMembers_1");
-    else if (memberCount == 2)
-        return TGLocalizedStatic(@"Conversation.StatusMembers_2");
-    else if (memberCount >= 3 && memberCount <= 10)
-        return [[NSString alloc] initWithFormat:TGLocalizedStatic(@"Conversation.StatusMembers_3_10"), [TGStringUtils stringWithLocalizedNumber:memberCount]];
-    else
-        return [[NSString alloc] initWithFormat:TGLocalizedStatic(@"Conversation.StatusMembers_any"), [TGStringUtils stringWithLocalizedNumber:memberCount]];
+    return [effectiveLocalization() getPluralized:@"Conversation.StatusMembers" count:memberCount];
 }
 
 - (NSString *)stringForOnlineCount:(int)onlineCount
 {
-    if (onlineCount == 1)
-        return TGLocalizedStatic(@"Conversation.StatusOnline_1");
-    else if (onlineCount == 2)
-        return TGLocalizedStatic(@"Conversation.StatusOnline_2");
-    else if (onlineCount >= 3 && onlineCount <= 10)
-        return [[NSString alloc] initWithFormat:TGLocalizedStatic(@"Conversation.StatusOnline_3_10"), [TGStringUtils stringWithLocalizedNumber:onlineCount]];
-    else
-        return [[NSString alloc] initWithFormat:TGLocalizedStatic(@"Conversation.StatusOnline_any"), [TGStringUtils stringWithLocalizedNumber:onlineCount]];
+    return [effectiveLocalization() getPluralized:@"Conversation.StatusOnline" count:onlineCount];
 }
 
 - (id)stringForMemberCount:(int)memberCount onlineCount:(int)onlineCount participationStatus:(TGGroupParticipationStatus)participationStatus
@@ -136,6 +127,12 @@ typedef enum {
 {
     if ([activity isEqualToString:@"recordingAudio"])
         return TGLocalized(@"Activity.RecordingAudio");
+    else if ([activity isEqualToString:@"uploadingAudio"])
+        return TGLocalized(@"Activity.UploadingAudio");
+    else if ([activity isEqualToString:@"recordingVideoMessage"])
+        return TGLocalized(@"Activity.RecordingVideoMessage");
+    else if ([activity isEqualToString:@"uploadingVideoMessage"])
+        return TGLocalized(@"Activity.UploadingVideoMessage");
     else if ([activity isEqualToString:@"uploadingPhoto"])
         return TGLocalized(@"Activity.UploadingPhoto");
     else if ([activity isEqualToString:@"uploadingVideo"])
@@ -144,6 +141,8 @@ typedef enum {
         return TGLocalized(@"Activity.UploadingDocument");
     else if ([activity isEqualToString:@"pickingLocation"])
         return nil;
+    else if ([activity isEqualToString:@"playingGame"])
+        return TGLocalized(@"Activity.PlayingGame");
     
     return TGLocalized(@"Conversation.typing");
 }
@@ -152,6 +151,8 @@ typedef enum {
 {
     if ([activity isEqualToString:@"recordingAudio"])
         return TGModernConversationTitleViewActivityAudioRecording;
+    else if ([activity isEqualToString:@"recordingVideoMessage"])
+        return TGModernConversationTitleViewActivityVideoMessageRecording;
     else if ([activity isEqualToString:@"uploadingPhoto"])
         return TGModernConversationTitleViewActivityUploading;
     else if ([activity isEqualToString:@"uploadingVideo"])
@@ -160,6 +161,8 @@ typedef enum {
         return TGModernConversationTitleViewActivityUploading;
     else if ([activity isEqualToString:@"pickingLocation"])
         return 0;
+    else if ([activity isEqualToString:@"playingGame"])
+        return TGModernConversationTitleViewActivityPlaying;
     
     return TGModernConversationTitleViewActivityTyping;
 }
@@ -211,6 +214,11 @@ typedef enum {
         return TGGroupParticipationStatusDeactivated;
     
     return TGGroupParticipationStatusMember;
+}
+
+- (NSString *)title
+{
+    return _conversation.chatTitle;
 }
 
 - (void)loadInitialState
@@ -301,47 +309,43 @@ typedef enum {
                 [unblockPanel setActionWithTitle:TGLocalized(@"ConversationProfile.LeaveDeleteAndExit") action:@"deleteAndExit"];
                 unblockPanel.delegate = controller;
                 unblockPanel.companionHandle = actionHandle;
-                [controller setCustomInputPanel:unblockPanel];
+                [controller setDefaultInputPanel:unblockPanel];
             }
             else
-                [controller setCustomInputPanel:nil];
+                [controller setDefaultInputPanel:nil];
         });
     }
 }
 
 - (void)_createOrUpdatePrimaryTitlePanel:(bool)createIfNeeded
 {
-    if ([[UIDevice currentDevice] userInterfaceIdiom] == UIUserInterfaceIdiomPhone)
+    TGModernConversationController *controller = self.controller;
+    
+    TGModernConversationGroupTitlePanel *groupTitlePanel = nil;
+    if ([[controller primaryTitlePanel] isKindOfClass:[TGModernConversationGroupTitlePanel class]])
+        groupTitlePanel = (TGModernConversationGroupTitlePanel *)[controller primaryTitlePanel];
+    else
     {
-        TGModernConversationController *controller = self.controller;
-        
-        TGModernConversationGroupTitlePanel *groupTitlePanel = nil;
-        if ([[controller primaryTitlePanel] isKindOfClass:[TGModernConversationGroupTitlePanel class]])
-            groupTitlePanel = (TGModernConversationGroupTitlePanel *)[controller primaryTitlePanel];
-        else
+        if (createIfNeeded)
         {
-            if (createIfNeeded)
-            {
-                groupTitlePanel = [[TGModernConversationGroupTitlePanel alloc] init];
-                groupTitlePanel.companionHandle = self.actionHandle;
-            }
-            else
-                return;
+            groupTitlePanel = [[TGModernConversationGroupTitlePanel alloc] init];
+            groupTitlePanel.companionHandle = self.actionHandle;
         }
-        
-        NSMutableArray *actions = [[NSMutableArray alloc] init];
-        [actions addObject:@{@"title": TGLocalized(@"Conversation.Search"), @"action": @"search"}];
-        [actions addObject:@{@"title": TGLocalized(@"Common.Edit"), @"action": @"edit"}];
-        if (_isMuted)
-            [actions addObject:@{@"title": TGLocalized(@"Conversation.Unmute"), @"action": @"unmute"}];
         else
-            [actions addObject:@{@"title": TGLocalized(@"Conversation.Mute"), @"action": @"mute"}];
-        //[actions addObject:@{@"title": TGLocalized(@"Conversation.Info"), @"action": @"info"}];
-        
-        [groupTitlePanel setButtonsWithTitlesAndActions:actions];
-        
-        [controller setPrimaryTitlePanel:groupTitlePanel];
+            return;
     }
+    
+    NSMutableArray *actions = [[NSMutableArray alloc] init];
+    [actions addObject:@{@"title": TGLocalized(@"Conversation.Search"), @"icon": [UIImage imageNamed:@"PanelSearchIcon"], @"action": @"search"}];
+    if (_isMuted)
+        [actions addObject:@{@"title": TGLocalized(@"Conversation.Unmute"), @"icon": TGTintedImage([UIImage imageNamed:@"DialogListActionUnmute"], TGAccentColor()), @"action": @"unmute"}];
+    else
+        [actions addObject:@{@"title": TGLocalized(@"Conversation.Mute"), @"icon": TGTintedImage([UIImage imageNamed:@"DialogListActionMute"], TGAccentColor()), @"action": @"mute"}];
+    [actions addObject:@{@"title": TGLocalized(@"Conversation.Info"), @"icon": [UIImage imageNamed:@"PanelInfoIcon"], @"action": @"info"}];
+    
+    [groupTitlePanel setButtonsWithTitlesAndActions:actions];
+    
+    [controller setPrimaryTitlePanel:groupTitlePanel];
 }
 
 - (void)_loadControllerPrimaryTitlePanel
@@ -406,6 +410,11 @@ typedef enum {
     return TGAppDelegateInstance.autoDownloadAudioInGroups;
 }
 
+- (bool)shouldAutomaticallyDownloadVideoMessages
+{
+    return TGAppDelegateInstance.autoDownloadVideoMessageInGroups;
+}
+
 - (NSString *)_sendMessagePathForMessageId:(int32_t)mid
 {
     return [[NSString alloc] initWithFormat:@"/tg/sendCommonMessage/(%@)/(%d)", [self _conversationIdPathComponent], mid];
@@ -467,7 +476,7 @@ typedef enum {
                 static dispatch_once_t onceToken;
                 dispatch_once(&onceToken, ^
                 {
-                    muteImage = [UIImage imageNamed:@"ModernConversationTitleIconMute.png"];
+                    muteImage = [UIImage imageNamed:@"DialogList_Muted.png"];
                 });
                 
                 muteIcon.image = muteImage;
@@ -488,19 +497,22 @@ typedef enum {
     {
         NSString *panelAction = options[@"action"];
         
-        if ([panelAction isEqualToString:@"mute"])
+        if ([panelAction isEqualToString:@"mute"]) {
             [self requestGroupMute:true];
-        else if ([panelAction isEqualToString:@"unmute"])
-            [self requestGroupMute:false];
-        else if ([panelAction isEqualToString:@"edit"])
-        {
-            TGModernConversationController *controller = self.controller;
-            [controller enterEditingMode];
         }
-        else if ([panelAction isEqualToString:@"info"])
+        else if ([panelAction isEqualToString:@"unmute"]) {
+            [self requestGroupMute:false];
+        }
+        else if ([panelAction isEqualToString:@"edit"]) {
+            [self.controller enterEditingMode];
+        }
+        else if ([panelAction isEqualToString:@"info"]) {
             [self _controllerAvatarPressed];
-        else if ([panelAction isEqualToString:@"search"])
+            [self.controller hideTitlePanel];
+        }
+        else if ([panelAction isEqualToString:@"search"]) {
             [self navigateToMessageSearch];
+        }
     }
     else if ([action isEqualToString:@"actionPanelAction"])
     {
@@ -690,8 +702,8 @@ typedef enum {
         for (NSNumber *nUid in _conversation.chatParticipants.chatParticipantUids)
         {
             TGUser *user = [TGDatabaseInstance() loadUser:[nUid intValue]];
-            if (user != nil && user.uid != TGTelegraphInstance.clientUserId && user.userName.length != 0 && (normalizedMention.length == 0 || [[user.userName lowercaseString] hasPrefix:normalizedMention]))
-            {
+            TGLog(@"%d %@", user.uid, user.displayName);
+            if (user != nil && (normalizedMention.length == 0 || [[user.userName lowercaseString] hasPrefix:normalizedMention] || [[user.firstName lowercaseString] hasPrefix:normalizedMention] || [[user.lastName lowercaseString] hasPrefix:normalizedMention])) {
                 userDict[@(user.uid)] = user;
             }
         }
@@ -704,7 +716,7 @@ typedef enum {
     {
         int32_t uid = (int32_t)(item->_message.fromUid);
         TGUser *user = userDict[@(uid)];
-        if (user != nil)
+        if (user != nil && user.uid != TGTelegraphInstance.clientUserId)
         {
             [sortedUserList addObject:user];
             [userDict removeObjectForKey:@(uid)];
@@ -715,10 +727,17 @@ typedef enum {
     
     return [[canBeContextBot ? [TGRecentContextBotsSignal recentBots] : [SSignal single:@[]] mapToSignal:^SSignal *(NSArray *userIds) {
         return [TGDatabaseInstance() modify:^id{
-            NSMutableArray *users = [[NSMutableArray alloc] initWithArray:[userDict allValues]];
+            NSMutableArray *users = [[NSMutableArray alloc] init];
+            for (TGUser *user in [userDict allValues]) {
+                if (user.uid != TGTelegraphInstance.clientUserId) {
+                    [users addObject:user];
+                }
+            }
+            
             NSMutableArray *contextBots = [[NSMutableArray alloc] init];
             
             NSMutableSet *existingUsers = [[NSMutableSet alloc] init];
+            
             for (TGUser *user in users) {
                 [existingUsers addObject:@(user.uid)];
             }
@@ -733,7 +752,7 @@ typedef enum {
                     [existingUsers addObject:nUserId];
                     
                     TGUser *user = [TGDatabaseInstance() loadUser:[nUserId intValue]];
-                    if (user != nil && (normalizedMention.length == 0 || [[user.userName lowercaseString] hasPrefix:normalizedMention])) {
+                    if (user != nil && (normalizedMention.length == 0 || [[user.userName lowercaseString] hasPrefix:normalizedMention] || [[user.firstName lowercaseString] hasPrefix:normalizedMention] || [[user.lastName lowercaseString] hasPrefix:normalizedMention])) {
                         if (user.isContextBot) {
                             [contextBots addObject:user];
                         } else {
@@ -812,6 +831,21 @@ typedef enum {
 - (bool)isASingleBotGroup
 {
     return _hasSingleBot;
+}
+
+- (TGModernGalleryController *)galleryControllerForAvatar
+{
+    if (_conversation.chatPhotoSmall.length == 0)
+        return nil;
+    
+    TGModernGalleryController *modernGallery = [[TGModernGalleryController alloc] init];
+    modernGallery.model = [[TGGroupAvatarGalleryModel alloc] initWithPeerId:_conversationId accessHash:0 messageId:0 legacyThumbnailUrl:_conversation.chatPhotoSmall legacyUrl:_conversation.chatPhotoBig imageSize:CGSizeMake(640.0f, 640.0f)];
+    
+    return modernGallery;
+}
+
+- (bool)isPeerAdmin {
+    return _conversation.isAdmin;
 }
 
 @end

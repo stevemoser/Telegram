@@ -54,3 +54,24 @@
 
 @end
 
+@interface TLMessagesFilter$inputMessagesFilterChatPhotos : TLMessagesFilter
+
+
+@end
+
+@interface TLMessagesFilter$inputMessagesFilterPhoneCalls : TLMessagesFilter
+
+@property (nonatomic) int32_t flags;
+
+@end
+
+@interface TLMessagesFilter$inputMessagesFilterRoundVideo : TLMessagesFilter
+
+
+@end
+
+@interface TLMessagesFilter$inputMessagesFilterRoundVoice : TLMessagesFilter
+
+
+@end
+

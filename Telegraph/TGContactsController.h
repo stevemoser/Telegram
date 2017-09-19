@@ -32,7 +32,10 @@ typedef enum {
     TGContactsModeCreateGroupLink = (2 << 14),
     TGContactsModeSortByLastSeen = (2 << 15),
     TGContactsModeIgnorePrivateBots = (2 << 16),
-    TGContactsModeSearchGlobal = (2 << 17)
+    TGContactsModeSearchGlobal = (2 << 17),
+    TGContactsModeIgnoreBots = (2 << 18),
+    TGContactsModeCalls = (2 << 19),
+    TGContactsModeSortByImporters = (2 << 20)
 } TGContactsMode;
 
 @interface TGContactsController : TGViewController <TGViewControllerNavigationBarAppearance, ASWatcher>

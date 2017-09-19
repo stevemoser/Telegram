@@ -189,6 +189,11 @@ typedef enum {
 }
 
 - (void)setProgress:(CGFloat)progress animated:(bool)animated
+{
+    [self setProgress:progress animated:animated duration:0.5];
+}
+
+- (void)setProgress:(CGFloat)progress animated:(bool)animated duration:(NSTimeInterval)duration
 {    
     if (_type != TGMessageImageViewOverlayViewTypeProgress || ABS(_progress - progress) > FLT_EPSILON)
     {
@@ -227,7 +232,7 @@ typedef enum {
                 animation.fromValue = @(_progress);
                 animation.toValue = @(progress);
                 animation.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionLinear];
-                animation.duration = 0.5;
+                animation.duration = duration;
                 [self pop_addAnimation:animation forKey:@"progress"];
             }
         }
@@ -322,34 +327,26 @@ typedef enum {
             }
             else if (_overlayStyle == TGMessageImageViewOverlayStyleIncoming)
             {
-                if (ABS(diameter - 37.0f) < 0.1) {
-                    CGContextSetFillColorWithColor(context, TGAccentColor().CGColor);
-                } else {
-                    CGContextSetFillColorWithColor(context, TGColorWithHexAndAlpha(0x85baf2, 0.15f).CGColor);
-                }
+                CGContextSetFillColorWithColor(context, TGAccentColor().CGColor);
                 CGContextFillEllipseInRect(context, CGRectMake(0.0f, 0.0f, diameter, diameter));
             }
             else if (_overlayStyle == TGMessageImageViewOverlayStyleOutgoing)
             {
-                if (ABS(diameter - 37.0f) < 0.1) {
-                    CGContextSetFillColorWithColor(context, TGColorWithHex(0x3fc33b).CGColor);
-                } else {
-                    CGContextSetFillColorWithColor(context, TGColorWithHexAndAlpha(0x4fb212, 0.15f).CGColor);
-                }
+                CGContextSetFillColorWithColor(context, TGColorWithHexAndAlpha(0x3fc33b, 1.0f).CGColor);
                 CGContextFillEllipseInRect(context, CGRectMake(0.0f, 0.0f, diameter, diameter));
             }
             
             if (_overlayStyle == TGMessageImageViewOverlayStyleDefault)
                 CGContextSetStrokeColorWithColor(context, TGColorWithHexAndAlpha(0xff000000, 0.55f).CGColor);
             else if (_overlayStyle == TGMessageImageViewOverlayStyleIncoming) {
-                if (ABS(diameter - 37.0f) < 0.1) {
+                if (true || ABS(diameter - 37.0f) < 0.1) {
                     CGContextSetStrokeColorWithColor(context, [UIColor clearColor].CGColor);
                 } else {
                     CGContextSetStrokeColorWithColor(context, TGColorWithHex(0x4f9ef3).CGColor);
                 }
             }
             else if (_overlayStyle == TGMessageImageViewOverlayStyleOutgoing) {
-                if (ABS(diameter - 37.0f) < 0.1) {
+                if (true || ABS(diameter - 37.0f) < 0.1) {
                     CGContextSetStrokeColorWithColor(context, [UIColor clearColor].CGColor);
                 } else {
                     CGContextSetStrokeColorWithColor(context, TGColorWithHex(0x64b15e).CGColor);
@@ -394,9 +391,9 @@ typedef enum {
         case TGMessageImageViewOverlayViewTypeProgressNoCancel:
         {
             CGFloat diameter = _overlayStyle == TGMessageImageViewOverlayStyleList ? 30.0f : self.radius;
-            CGFloat inset = 0.5f;
+            CGFloat inset = 0.0f;
             CGFloat lineWidth = _overlayStyle == TGMessageImageViewOverlayStyleList ? 1.5f : 2.0f;
-            CGFloat crossSize = _overlayStyle == TGMessageImageViewOverlayStyleList ? 10.0f : 16.0f;
+            CGFloat crossSize = _overlayStyle == TGMessageImageViewOverlayStyleList ? 10.0f : 14.0f;
             
             if (ABS(diameter - 37.0f) < 0.1) {
                 crossSize = 10.0f;
@@ -415,7 +412,7 @@ typedef enum {
             }
             else if (_overlayStyle == TGMessageImageViewOverlayStyleIncoming)
             {
-                if (ABS(diameter - 37.0f) < 0.1) {
+                if (true || ABS(diameter - 37.0f) < 0.1) {
                     CGContextSetFillColorWithColor(context, TGAccentColor().CGColor);
                 } else {
                     CGContextSetFillColorWithColor(context, TGColorWithHexAndAlpha(0x85baf2, 0.15f).CGColor);
@@ -424,7 +421,7 @@ typedef enum {
             }
             else if (_overlayStyle == TGMessageImageViewOverlayStyleOutgoing)
             {
-                if (ABS(diameter - 37.0f) < 0.1) {
+                if (true || ABS(diameter - 37.0f) < 0.1) {
                     CGContextSetFillColorWithColor(context, TGColorWithHex(0x3fc33b).CGColor);
                 } else {
                     CGContextSetFillColorWithColor(context, TGColorWithHexAndAlpha(0x4fb212, 0.15f).CGColor);
@@ -451,14 +448,14 @@ typedef enum {
             if (_overlayStyle == TGMessageImageViewOverlayStyleDefault)
                 CGContextSetStrokeColorWithColor(context, [UIColor clearColor].CGColor);
             else if (_overlayStyle == TGMessageImageViewOverlayStyleIncoming) {
-                if (ABS(diameter - 37.0f) < 0.1) {
+                if (true || ABS(diameter - 37.0f) < 0.1) {
                     CGContextSetStrokeColorWithColor(context, [UIColor whiteColor].CGColor);
                 } else {
                     CGContextSetStrokeColorWithColor(context, TGColorWithHex(0x4f9ef3).CGColor);
                 }
             }
             else if (_overlayStyle == TGMessageImageViewOverlayStyleOutgoing) {
-                if (ABS(diameter - 37.0f) < 0.1) {
+                if (true || ABS(diameter - 37.0f) < 0.1) {
                     CGContextSetStrokeColorWithColor(context, TGColorWithHex(0xe1ffc7).CGColor);
                 } else {
                     CGContextSetStrokeColorWithColor(context, TGColorWithHex(0x64b15e).CGColor);
@@ -493,14 +490,14 @@ typedef enum {
             if (_overlayStyle == TGMessageImageViewOverlayStyleDefault)
                 CGContextSetStrokeColorWithColor(context, [UIColor clearColor].CGColor);
             else if (_overlayStyle == TGMessageImageViewOverlayStyleIncoming) {
-                if (ABS(diameter - 37.0f) < 0.1) {
+                if (true || ABS(diameter - 37.0f) < 0.1) {
                     CGContextSetStrokeColorWithColor(context, [UIColor whiteColor].CGColor);
                 } else {
                     CGContextSetStrokeColorWithColor(context, TGColorWithHex(0x4f9ef3).CGColor);
                 }
             }
             else if (_overlayStyle == TGMessageImageViewOverlayStyleOutgoing) {
-                if (ABS(diameter - 37.0f) < 0.1) {
+                if (true || ABS(diameter - 37.0f) < 0.1) {
                     CGContextSetStrokeColorWithColor(context, TGColorWithHex(0xe1ffc7).CGColor);
                 } else {
                     CGContextSetStrokeColorWithColor(context, TGColorWithHex(0x64b15e).CGColor);
@@ -527,7 +524,10 @@ typedef enum {
             
             if (ABS(diameter - 37.0f) < 0.1) {
                 pathLineWidth = 2.5f;
-                pathDiameter = diameter - pathLineWidth - 2.5f;
+                pathDiameter = diameter - pathLineWidth * 2.0 - 1.5f;
+            } else {
+                pathLineWidth = 2.5f;
+                pathDiameter = diameter - pathLineWidth * 2.0 - 1.5f;
             }
             
             UIBezierPath *path = [UIBezierPath bezierPathWithArcCenter:CGPointMake(diameter / 2.0f, diameter / 2.0f) radius:pathDiameter / 2.0f startAngle:start_angle endAngle:end_angle clockwise:true];
@@ -557,7 +557,7 @@ typedef enum {
             
             if (_overlayStyle == TGMessageImageViewOverlayStyleIncoming)
             {
-                CGContextSetFillColorWithColor(context, TGColorWithHexAndAlpha(0x85baf2, 0.15f).CGColor);
+                CGContextSetFillColorWithColor(context, TGAccentColor().CGColor);
                 CGContextFillEllipseInRect(context, CGRectMake(0.0f, 0.0f, diameter, diameter));
                 
                 UIImage *iconImage = [UIImage imageNamed:@"ModernMessageDocumentIconIncoming.png"];
@@ -565,7 +565,7 @@ typedef enum {
             }
             else if (_overlayStyle == TGMessageImageViewOverlayStyleOutgoing)
             {
-                CGContextSetFillColorWithColor(context, TGColorWithHexAndAlpha(0x4fb212, 0.15f).CGColor);
+                CGContextSetFillColorWithColor(context, TGColorWithHexAndAlpha(0x3fc33b, 1.0f).CGColor);
                 CGContextFillEllipseInRect(context, CGRectMake(0.0f, 0.0f, diameter, diameter));
                 
                 UIImage *iconImage = [UIImage imageNamed:@"ModernMessageDocumentIconOutgoing.png"];
@@ -757,9 +757,17 @@ typedef enum {
         }
         case TGMessageImageViewOverlayViewTypeSecretProgress:
         {
-            const CGFloat diameter = self.radius;
+            CGFloat diameter = self.radius;
+            
+            //CGFloat inset = 2.0f;
             
             [_blurredBackgroundImage drawInRect:CGRectMake(0.0f, 0.0f, diameter, diameter) blendMode:kCGBlendModeCopy alpha:1.0f];
+            
+            /*CGContextSetFillColorWithColor(context, TGColorWithHexAndAlpha(0x000000, 0.7f).CGColor);
+            CGContextFillEllipseInRect(context, CGRectMake(inset, inset, diameter - inset * 2.0f, diameter - inset * 2.0f));
+            
+            diameter -= inset * 2.0f;*/
+            
             CGContextSetFillColorWithColor(context, TGColorWithHexAndAlpha(0xffffffff, 0.5f).CGColor);
             CGContextFillEllipseInRect(context, CGRectMake(0.0f, 0.0f, diameter, diameter));
             
@@ -793,7 +801,7 @@ typedef enum {
     CALayer *_blurredBackgroundLayer;
     TGMessageImageViewOverlayLayer *_contentLayer;
     TGMessageImageViewOverlayLayer *_progressLayer;
-    CGFloat _progress;
+    bool _blurless;
 }
 
 @end
@@ -827,6 +835,12 @@ typedef enum {
         [self.layer addSublayer:_progressLayer];
     }
     return self;
+}
+
+- (void)setBlurless:(bool)blurless
+{
+    _blurless = blurless;
+    _blurredBackgroundLayer.hidden = blurless;
 }
 
 - (void)setRadius:(CGFloat)radius
@@ -879,7 +893,7 @@ typedef enum {
     [_contentLayer setDownload];
     [_progressLayer setNone];
     _progressLayer.hidden = true;
-    _blurredBackgroundLayer.hidden = false;
+    _blurredBackgroundLayer.hidden = _blurless;
 }
 
 - (void)setPlay
@@ -887,7 +901,7 @@ typedef enum {
     [_contentLayer setPlay];
     [_progressLayer setNone];
     _progressLayer.hidden = true;
-    _blurredBackgroundLayer.hidden = false;
+    _blurredBackgroundLayer.hidden = _blurless;
 }
 
 - (void)setPlayMedia
@@ -895,7 +909,7 @@ typedef enum {
     [_contentLayer setPlayMedia];
     [_progressLayer setNone];
     _progressLayer.hidden = true;
-    _blurredBackgroundLayer.hidden = false;
+    _blurredBackgroundLayer.hidden = _blurless;
 }
 
 - (void)setPauseMedia
@@ -903,7 +917,7 @@ typedef enum {
     [_contentLayer setPauseMedia];
     [_progressLayer setNone];
     _progressLayer.hidden = true;
-    _blurredBackgroundLayer.hidden = false;
+    _blurredBackgroundLayer.hidden = _blurless;
 }
 
 - (void)setSecret:(bool)isViewed
@@ -911,7 +925,7 @@ typedef enum {
     [_contentLayer setSecret:isViewed];
     [_progressLayer setNone];
     _progressLayer.hidden = true;
-    _blurredBackgroundLayer.hidden = false;
+    _blurredBackgroundLayer.hidden = _blurless;
 }
 
 - (void)setNone
@@ -919,7 +933,7 @@ typedef enum {
     [_contentLayer setNone];
     [_progressLayer setNone];
     _progressLayer.hidden = true;
-    _blurredBackgroundLayer.hidden = false;
+    _blurredBackgroundLayer.hidden = _blurless;
 }
 
 - (void)setProgress:(CGFloat)progress animated:(bool)animated
@@ -931,7 +945,7 @@ typedef enum {
 {
     if (progress > FLT_EPSILON)
         progress = MAX(progress, 0.027f);
-    _blurredBackgroundLayer.hidden = false;
+    _blurredBackgroundLayer.hidden = _blurless;
     _progressLayer.hidden = false;
     
     if (!animated)
@@ -943,6 +957,23 @@ typedef enum {
     _progress = progress;
     
     [_progressLayer setProgress:progress animated:animated];
+    
+    if (cancelEnabled)
+        [_contentLayer setProgressCancel];
+    else
+        [_contentLayer setProgressNoCancel];
+}
+
+- (void)setProgressAnimated:(CGFloat)progress duration:(NSTimeInterval)duration cancelEnabled:(bool)cancelEnabled
+{
+    if (progress > FLT_EPSILON)
+        progress = MAX(progress, 0.027f);
+    _blurredBackgroundLayer.hidden = _blurless;
+    _progressLayer.hidden = false;
+    
+    _progress = progress;
+    
+    [_progressLayer setProgress:progress animated:true duration:duration];
     
     if (cancelEnabled)
         [_contentLayer setProgressCancel];

@@ -12,14 +12,21 @@
 #import "TGMainTabsController.h"
 #import "TGDialogListController.h"
 #import "TGContactsController.h"
+#import "TGRecentCallsController.h"
 #import "TGAccountSettingsController.h"
 #import "TGRootController.h"
 #import "TGNotificationController.h"
 #import "TGKeyCommandController.h"
 
+#import "TGResetAccountState.h"
+
 #import "ActionStage.h"
 
 #import "TGHolderSet.h"
+
+#import "TGMessage.h"
+
+#import "TGApplicationMainWindow.h"
 
 extern CFAbsoluteTime applicationStartupTimestamp;
 extern CFAbsoluteTime mainLaunchTimestamp;
@@ -29,7 +36,7 @@ extern TGAppDelegate *TGAppDelegateInstance;
 
 @class TGGlobalContext;
 
-@class TGStickerPack;
+@protocol TGStickerPackReference;
 
 extern NSString *TGDeviceProximityStateChangedNotification;
 
@@ -41,12 +48,16 @@ extern NSString *TGDeviceProximityStateChangedNotification;
 
 @end
 
+@class SSignal;
+
 @interface TGAppDelegate : UIResponder <UIApplicationDelegate, ASWatcher>
 
 @property (nonatomic, strong, readonly) ASHandle *actionHandle;
 
-@property (nonatomic, strong) UIWindow *window;
+@property (nonatomic, strong) TGApplicationMainWindow *window;
 @property (nonatomic, strong) UIWindow *contentWindow;
+
+@property (nonatomic, strong, readonly) SSignal *localizationUpdated;
 
 @property (nonatomic) bool isManuallyLocked;
 @property (nonatomic) int32_t automaticLockTimeout;
@@ -64,6 +75,8 @@ extern NSString *TGDeviceProximityStateChangedNotification;
 @property (nonatomic) bool exclusiveConversationControllers;
 
 @property (nonatomic) bool autosavePhotos;
+@property (nonatomic) bool saveEditedPhotos;
+@property (nonatomic) bool saveCapturedMedia;
 @property (nonatomic) bool customChatBackground;
 
 @property (nonatomic) bool autoDownloadPhotosInGroups;
@@ -72,6 +85,9 @@ extern NSString *TGDeviceProximityStateChangedNotification;
 @property (nonatomic) bool autoDownloadAudioInGroups;
 @property (nonatomic) bool autoDownloadAudioInPrivateChats;
 
+@property (nonatomic) bool autoDownloadVideoMessageInGroups;
+@property (nonatomic) bool autoDownloadVideoMessageInPrivateChats;
+
 @property (nonatomic) bool autoPlayAudio;
 @property (nonatomic) bool autoPlayAnimations;
 
@@ -79,6 +95,11 @@ extern NSString *TGDeviceProximityStateChangedNotification;
 @property (nonatomic) bool allowSecretWebpagesInitialized;
 
 @property (nonatomic) bool secretInlineBotsInitialized;
+
+@property (nonatomic) int callsDataUsageMode;
+@property (nonatomic) bool callsDisableP2P;
+@property (nonatomic) bool callsDisableCallKit;
+@property (nonatomic) bool callsUseProxy;
 
 @property (nonatomic) int alwaysShowStickersMode;
 
@@ -99,13 +120,17 @@ extern NSString *TGDeviceProximityStateChangedNotification;
 @property (nonatomic, readonly) bool inBackground;
 @property (nonatomic, readonly) bool backgroundTaskOngoing;
 
+@property (nonatomic) int showCallsTab;
+- (bool)callsTabFileExists;
+- (void)resetCallsTab;
+
 - (void)resetLocalization;
 
 - (void)performPhoneCall:(NSURL *)url;
 
 - (void)presentMainController;
 
-- (void)presentLoginController:(bool)clearControllerStates showWelcomeScreen:(bool)showWelcomeScreen phoneNumber:(NSString *)phoneNumber phoneCode:(NSString *)phoneCode phoneCodeHash:(NSString *)phoneCodeHash codeSentToTelegram:(bool)codeSentToTelegram profileFirstName:(NSString *)profileFirstName profileLastName:(NSString *)profileLastName;
+- (void)presentLoginController:(bool)clearControllerStates animated:(bool)animated showWelcomeScreen:(bool)showWelcomeScreen phoneNumber:(NSString *)phoneNumber phoneCode:(NSString *)phoneCode phoneCodeHash:(NSString *)phoneCodeHash codeSentToTelegram:(bool)codeSentToTelegram codeSentViaPhone:(bool)codeSentViaPhone profileFirstName:(NSString *)profileFirstName profileLastName:(NSString *)profileLastName resetAccountState:(TGResetAccountState *)resetAccountState;
 - (void)presentContentController:(UIViewController *)controller;
 - (void)dismissContentController;
 
@@ -114,7 +139,7 @@ extern NSString *TGDeviceProximityStateChangedNotification;
 
 - (NSDictionary *)loadLoginState;
 - (void)resetLoginState;
-- (void)saveLoginStateWithDate:(int)date phoneNumber:(NSString *)phoneNumber phoneCode:(NSString *)phoneCode phoneCodeHash:(NSString *)phoneCodeHash codeSentToTelegram:(bool)codeSentToTelegram firstName:(NSString *)firstName lastName:(NSString *)lastName photo:(NSData *)photo;
+- (void)saveLoginStateWithDate:(int)date phoneNumber:(NSString *)phoneNumber phoneCode:(NSString *)phoneCode phoneCodeHash:(NSString *)phoneCodeHash codeSentToTelegram:(bool)codeSentToTelegram codeSentViaPhone:(bool)codeSentViaPhone firstName:(NSString *)firstName lastName:(NSString *)lastName photo:(NSData *)photo resetAccountState:(TGResetAccountState *)resetAccountState;
 
 - (NSArray *)classicAlertSoundTitles;
 - (NSArray *)modernAlertSoundTitles;
@@ -131,10 +156,14 @@ extern NSString *TGDeviceProximityStateChangedNotification;
 - (void)resetControllerStack;
 
 - (void)handleOpenDocument:(NSURL *)url animated:(bool)animated;
+- (void)handleOpenDocument:(NSURL *)url animated:(bool)animated keepStack:(bool)keepStack;
 
-- (void)previewStickerPack:(TGStickerPack *)stickerPack currentStickerPacks:(NSArray *)currentStickerPacks;
+- (void)handleOpenInstantView:(NSString *)url;
+
+- (void)previewStickerPackWithReference:(id<TGStickerPackReference>)packReference;
 
 - (void)inviteBotToGroup:(TGUser *)user payload:(NSString *)payload;
+- (void)startGameInConversation:(NSString *)shortName user:(TGUser *)user;
 
 + (NSString *)documentsPath;
 + (NSString *)cachePath;
@@ -143,5 +172,7 @@ extern NSString *TGDeviceProximityStateChangedNotification;
 - (void)setEnableLogging:(bool)enableLogging;
 
 - (void)setupShortcutItems;
+
+- (void)updatePushRegistration;
 
 @end

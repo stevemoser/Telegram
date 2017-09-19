@@ -191,7 +191,7 @@
     
     if (_stripeView != nil)
     {
-        float stripeHeight = TGIsRetina() ? 0.5f : 1.0f;
+        CGFloat stripeHeight = TGScreenPixel;
         _stripeView.frame = CGRectMake(0, _backgroundContainerView.bounds.size.height - stripeHeight, _backgroundContainerView.bounds.size.width, stripeHeight);
     }
     
@@ -234,11 +234,16 @@
         center.x = CGFloor(self.bounds.size.width) - center.x;
     
     bool shouldFix = (iosMajorVersion() >= 7);
-    if (shouldFix && [UIDevice currentDevice].userInterfaceIdiom == UIUserInterfaceIdiomPad)
-        shouldFix = [[[[self superview] superview] superview] isKindOfClass:[TGTabletMainView class]];
-
+    if (shouldFix)
+    {
+        if ([UIDevice currentDevice].userInterfaceIdiom == UIUserInterfaceIdiomPad)
+            shouldFix = [[[[self superview] superview] superview] isKindOfClass:[TGTabletMainView class]];
+    }
+    
     if (shouldFix && center.y <= self.frame.size.height / 2)
         center.y = center.y + 20.0f;
+    
+    center.y += self.verticalOffset;
     
     [super setCenter:center];
     
@@ -260,14 +265,14 @@
     }
     
     _musicPlayerContainer.alpha = frame.origin.y < 0.0f ? 0.0f : 1.0f;
-    _musicPlayerContainer.frame = CGRectMake(0.0f, frame.size.height, frame.size.width, 37.0f);
+    _musicPlayerContainer.frame = CGRectMake(0.0f, frame.size.height + self.musicPlayerOffset, frame.size.width, 37.0f);
 }
 
 - (void)setBounds:(CGRect)bounds
 {
     [super setBounds:bounds];
     
-    _musicPlayerContainer.frame = CGRectMake(0.0f, bounds.size.height, bounds.size.width, 37.0f);
+    _musicPlayerContainer.frame = CGRectMake(0.0f, bounds.size.height + self.musicPlayerOffset, bounds.size.width, 37.0f);
 }
 
 - (void)setHiddenState:(bool)hidden animated:(bool)animated
@@ -318,7 +323,8 @@
     if (view == nil)
         return nil;
     
-    if ([NSStringFromClass([view class]) isEqualToString:@"_UINavigationBarBackground"])
+    NSString *viewClass = NSStringFromClass([view class]);
+    if ([viewClass isEqualToString:@"_UINavigationBarBackground"] || [viewClass isEqualToString:@"_UIBarBackground"])
         return view;
     
     for (UIView *subview in view.subviews)
@@ -340,6 +346,7 @@
         if ([self isKindOfClass:[TGTransparentNavigationBar class]] || !TGBackdropEnabled())
         {
             UIView *backgroundView = [self findBackground:self];
+            backgroundView.hidden = true;
             [backgroundView removeFromSuperview];
             
             //TGDumpViews(self, @"");
@@ -349,7 +356,10 @@
 
 - (void)insertSubview:(UIView *)view atIndex:(NSInteger)index
 {
-    [super insertSubview:view atIndex:MIN((int)self.subviews.count, MAX(index, 2))];
+    if (view != self.additionalView)
+        [super insertSubview:view atIndex:MIN((int)self.subviews.count, MAX(index, 2))];
+    else
+        [super insertSubview:view atIndex:index];
 }
 
 - (bool)shouldAddBackdropBackground
@@ -450,7 +460,7 @@
             _musicPlayerContainer = [[UIView alloc] init];
             _musicPlayerContainer.autoresizingMask = UIViewAutoresizingFlexibleWidth;
             _musicPlayerContainer.clipsToBounds = true;
-            _musicPlayerContainer.frame = CGRectMake(0.0f, self.frame.size.height, self.frame.size.width, 37.0f);
+            _musicPlayerContainer.frame = CGRectMake(0.0f, self.frame.size.height + self.musicPlayerOffset, self.frame.size.width, 37.0f);
             
             _musicPlayerView = [[TGMusicPlayerView alloc] initWithNavigationController:_navigationController];
             _musicPlayerView.autoresizingMask = UIViewAutoresizingFlexibleWidth;
@@ -479,6 +489,12 @@
     }
 }
 
+- (void)setMusicPlayerOffset:(CGFloat)musicPlayerOffset
+{
+    _musicPlayerOffset = musicPlayerOffset;
+    _musicPlayerContainer.frame = CGRectMake(0.0f, self.frame.size.height + self.musicPlayerOffset, self.frame.size.width, 37.0f);
+}
+
 - (void)setMinimizedMusicPlayer:(bool)minimizedMusicPlayer
 {
     if (_minimizedMusicPlayer != minimizedMusicPlayer)
@@ -497,9 +513,23 @@
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event
 {
     UIView *result = [_musicPlayerContainer hitTest:CGPointMake(point.x - _musicPlayerContainer.frame.origin.x, point.y - _musicPlayerContainer.frame.origin.y) withEvent:event];
-    if (result != nil)
+    if (result != nil && self.alpha > FLT_EPSILON)
         return result;
+    
+    if (self.additionalView != nil)
+    {
+        UIView *result = [self.additionalView hitTest:CGPointMake(point.x - self.additionalView.frame.origin.x, point.y - self.additionalView.frame.origin.y) withEvent:event];
+        if (result != nil)
+            return result;
+    }
+    
     return [super hitTest:point withEvent:event];
+}
+
+- (void)setAlpha:(CGFloat)alpha {
+    if (!_keepAlpha) {
+        [super setAlpha:alpha];
+    }
 }
 
 @end

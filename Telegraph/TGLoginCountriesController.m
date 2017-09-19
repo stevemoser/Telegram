@@ -95,6 +95,7 @@ static NSArray *countryCodes()
 @interface TGLoginCountriesController () <UITableViewDataSource, UITableViewDelegate, TGSearchDisplayMixinDelegate>
 {
     CGFloat _draggingStartOffset;
+    bool _displayCodes;
 }
 
 @property (nonatomic, strong) TGListsTableView *tableView;
@@ -122,6 +123,18 @@ static NSArray *countryCodes()
     return nil;
 }
 
++ (NSString *)countryIdByCode:(int)code
+{
+    for (NSArray *array in countryCodes())
+    {
+        NSNumber *countryCode = [array objectAtIndex:0];
+        if ([countryCode intValue] == code)
+            return [array objectAtIndex:1];
+    }
+    
+    return nil;
+}
+
 + (NSString *)countryNameByCountryId:(NSString *)countryId code:(int *)code
 {
     NSString *normalizedCountryId = [countryId lowercaseString];
@@ -139,11 +152,16 @@ static NSArray *countryCodes()
     return nil;
 }
 
-- (id)init
+- (id)init {
+    return [self initWithCodes:true];
+}
+
+- (id)initWithCodes:(bool)displayCodes
 {
     self = [super initWithNibName:nil bundle:nil];
     if (self)
     {
+        _displayCodes = displayCodes;
         self.ignoreKeyboardWhenAdjustingScrollViewInsets = true;
         
         _searchResults = [[NSMutableArray alloc] init];
@@ -172,7 +190,7 @@ static NSArray *countryCodes()
     return TGIsPad();
 }
 
-- (NSUInteger)supportedInterfaceOrientations
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations
 {
     return UIInterfaceOrientationMaskPortrait;
 }
@@ -382,7 +400,9 @@ static NSArray *countryCodes()
     if (item != nil)
     {   
         [cell setTitle:[item objectAtIndex:2]];
-        [cell setCode:[[NSString alloc] initWithFormat:@"+%d", [((NSNumber *)[item objectAtIndex:0]) intValue]]];
+        if (_displayCodes) {
+            [cell setCode:[[NSString alloc] initWithFormat:@"+%d", [((NSNumber *)[item objectAtIndex:0]) intValue]]];
+        }
     }
     
     return cell;
@@ -400,7 +420,7 @@ static NSArray *countryCodes()
     if (item != nil)
     {
         if (_countrySelected)
-            _countrySelected([item[0] intValue], item[2]);
+            _countrySelected([item[0] intValue], item[2], item[1]);
         
         id<ASWatcher> watcher = _watcherHandle.delegate;
         if (watcher != nil && [watcher respondsToSelector:@selector(actionStageActionRequested:options:)])
